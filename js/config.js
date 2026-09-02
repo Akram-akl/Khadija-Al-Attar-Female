@@ -58,6 +58,10 @@ const APP_CONFIG = {
         'mona': {
             name: 'حلقة الأستاذة منى مبارك',
             emoji: '<i data-lucide="heart" class="w-6 h-6 inline-block text-pink-500"></i>'
+        },
+        'afnan': {
+            name: 'حلقة الأستاذة أفنان',
+            emoji: '<i data-lucide="sparkles" class="w-6 h-6 inline-block text-pink-500"></i>'
         }
     }
 };

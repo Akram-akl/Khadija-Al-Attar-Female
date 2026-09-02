@@ -630,6 +630,7 @@ VALUES
     ('abeer',  'auth_passwords', true, '{"teacherPass": "9422"}'::jsonb),
     ('hadeel', 'auth_passwords', true, '{"teacherPass": "5305"}'::jsonb),
     ('mona',   'auth_passwords', true, '{"teacherPass": "2742"}'::jsonb),
+    ('afnan',  'auth_passwords', true, '{"teacherPass": "4654"}'::jsonb),
     ('_global', 'master_password', true, '{"password": "779812"}'::jsonb);
 
 -- =====================================================
