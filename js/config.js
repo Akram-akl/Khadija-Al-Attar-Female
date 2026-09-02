@@ -47,7 +47,7 @@ const APP_CONFIG = {
             emoji: '<i data-lucide="sun" class="w-6 h-6 inline-block text-pink-500"></i>'
         },
         'abeer': {
-            name: 'حلقة الأستاذة عبير العلومي',
+            name: 'حلقة الأستاذة عبير العلومي (دارسات)',
             emoji: '<i data-lucide="graduation-cap" class="w-6 h-6 inline-block text-pink-500"></i>'
         },
         'hadeel': {
