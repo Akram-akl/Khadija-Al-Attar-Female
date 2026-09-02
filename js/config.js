@@ -259,7 +259,10 @@ const APP_CONFIG = {
 
     // 1. دالة getLabel لتراعي نظام الطالبات ونظام الدارسات بصيغة المؤنث
     function femaleGetLabel(key) {
-        var isAdult = typeof state !== 'undefined' && state && (state.currentLevel === 'ijazat');
+        var isAdult = typeof state !== 'undefined' && state && (
+            state.currentLevel === 'abeer' ||
+            (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.levels && APP_CONFIG.levels[state.currentLevel] && APP_CONFIG.levels[state.currentLevel].isAdult)
+        );
         var labels = {
             'student': isAdult ? 'دارسة' : 'طالبة',
             'students': isAdult ? 'دارسات' : 'طالبات',
@@ -274,6 +277,11 @@ const APP_CONFIG = {
         return labels[key] || (typeof key === 'string' ? localizeFemale(key) : key);
     }
     window.getLabel = femaleGetLabel;
+    window.isAdultLevel = function () {
+        if (typeof state === 'undefined' || !state || !state.currentLevel) return false;
+        var lvl = typeof APP_CONFIG !== 'undefined' && APP_CONFIG.levels && APP_CONFIG.levels[state.currentLevel];
+        return !!(lvl && lvl.isAdult) || state.currentLevel === 'abeer';
+    };
 
     // 2. معالجة وتأنيث نصوص DOM بطريقة آمنة وسريعة بدون تعليق
     var isMutating = false;
@@ -396,6 +404,11 @@ const APP_CONFIG = {
 
         var hookGlobals = function () {
             window.getLabel = femaleGetLabel;
+            window.isAdultLevel = function () {
+                if (typeof state === 'undefined' || !state || !state.currentLevel) return false;
+                var lvl = typeof APP_CONFIG !== 'undefined' && APP_CONFIG.levels && APP_CONFIG.levels[state.currentLevel];
+                return !!(lvl && lvl.isAdult) || state.currentLevel === 'abeer';
+            };
             hookXLSX();
 
             if (typeof showToast === 'function' && !showToast._femaleHooked) {

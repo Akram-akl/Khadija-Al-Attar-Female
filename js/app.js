@@ -3,12 +3,12 @@ const LEVELS = APP_CONFIG.levels;
 
 // Helper: check if current level is an adult/dariseen level
 function isAdultLevel() {
-    return state.currentLevel === 'abeer' || !!(LEVELS && LEVELS[state.currentLevel] && LEVELS[state.currentLevel].isAdult);
+    return state.currentLevel === 'ijazat' || state.currentLevel === 'abu_bakr';
 }
 
 // Helper: check if current level is specifically the ijazat system
 function isIjazatLevel() {
-    return false; // لا يوجد نظام إجازات في هذه النسخة
+    return state.currentLevel === 'ijazat';
 }
 
 function getLabel(key) {
