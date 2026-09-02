@@ -9,7 +9,7 @@ const APP_CONFIG = {
 
     // 2. Theme Configuration - الوان ورديه نسائيه
     themeColors: {
-        50:  '#fdf2f8',
+        50: '#fdf2f8',
         100: '#fce7f3',
         200: '#fbcfe8',
         300: '#f9a8d4',
@@ -47,8 +47,9 @@ const APP_CONFIG = {
             emoji: '<i data-lucide="sun" class="w-6 h-6 inline-block text-pink-500"></i>'
         },
         'abeer': {
-            name: 'حلقة الأستاذة عبير العلومي (دارسات)',
-            emoji: '<i data-lucide="graduation-cap" class="w-6 h-6 inline-block text-pink-500"></i>'
+            name: 'حلقة الأستاذة عبير العلومي',
+            emoji: '<i data-lucide="graduation-cap" class="w-6 h-6 inline-block text-pink-500"></i>',
+            isAdult: true
         },
         'hadeel': {
             name: 'حلقة الأستاذة هديل بن محفوظ',
@@ -65,7 +66,7 @@ const APP_CONFIG = {
 // 1. PINK THEME CSS OVERRIDE
 // Converts ALL hardcoded emerald/green Tailwind classes to pink.
 // =======================================================
-(function() {
+(function () {
     function injectTheme() {
         if (document.getElementById('pink-theme-override')) return;
         var css = [
@@ -131,7 +132,7 @@ const APP_CONFIG = {
 // =======================================================
 // 2. FEMININE TERMINOLOGY ENGINE (محرك تأنيث المصطلحات)
 // =======================================================
-(function() {
+(function () {
     function replaceArabicWord(text, word, replacement) {
         var regex = new RegExp('(?<![\\u0600-\\u06FF])' + word + '(?![\\u0600-\\u06FF])', 'gu');
         return text.replace(regex, replacement);
@@ -235,7 +236,7 @@ const APP_CONFIG = {
     function localizeFemale(text) {
         if (typeof text !== 'string' || !text) return text;
         var res = text;
-        
+
         for (var i = 0; i < phrases.length; i++) {
             res = replaceArabicWord(res, phrases[i][0], phrases[i][1]);
         }
@@ -284,7 +285,7 @@ const APP_CONFIG = {
                 root,
                 NodeFilter.SHOW_TEXT,
                 {
-                    acceptNode: function(node) {
+                    acceptNode: function (node) {
                         if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
                         var parent = node.parentElement;
                         if (!parent) return NodeFilter.FILTER_REJECT;
@@ -327,7 +328,7 @@ const APP_CONFIG = {
                     }
                 }
             }
-        } catch(e) {
+        } catch (e) {
             console.error('Localization error:', e);
         } finally {
             isMutating = false;
@@ -339,9 +340,9 @@ const APP_CONFIG = {
         if (window.XLSX && window.XLSX.utils && !window.XLSX._femaleHooked) {
             window.XLSX._femaleHooked = true;
             var origJsonToSheet = window.XLSX.utils.json_to_sheet;
-            window.XLSX.utils.json_to_sheet = function(data, opts) {
+            window.XLSX.utils.json_to_sheet = function (data, opts) {
                 if (Array.isArray(data)) {
-                    data = data.map(function(row) {
+                    data = data.map(function (row) {
                         if (row && typeof row === 'object') {
                             var newRow = {};
                             for (var k in row) {
@@ -358,25 +359,25 @@ const APP_CONFIG = {
                     });
                 }
                 if (opts && Array.isArray(opts.header)) {
-                    opts.header = opts.header.map(function(h) { return localizeFemale(h); });
+                    opts.header = opts.header.map(function (h) { return localizeFemale(h); });
                 }
                 return origJsonToSheet.call(this, data, opts);
             };
 
             var origAppend = window.XLSX.utils.book_append_sheet;
-            window.XLSX.utils.book_append_sheet = function(wb, ws, name) {
+            window.XLSX.utils.book_append_sheet = function (wb, ws, name) {
                 return origAppend.call(this, wb, ws, localizeFemale(name));
             };
         }
     }
 
     // 4. تشغيل المعالجة عند اكتمال تحميل الصفحة وربط الـ Observer بـ #app
-    window.addEventListener('DOMContentLoaded', function() {
+    window.addEventListener('DOMContentLoaded', function () {
         window.getLabel = femaleGetLabel;
         replaceFemaleInRoot(document.body);
 
         var appEl = document.getElementById('app') || document.body;
-        var observer = new MutationObserver(function(mutations) {
+        var observer = new MutationObserver(function (mutations) {
             if (isMutating) return;
             for (var i = 0; i < mutations.length; i++) {
                 var m = mutations[i];
@@ -393,13 +394,13 @@ const APP_CONFIG = {
             subtree: true
         });
 
-        var hookGlobals = function() {
+        var hookGlobals = function () {
             window.getLabel = femaleGetLabel;
             hookXLSX();
 
             if (typeof showToast === 'function' && !showToast._femaleHooked) {
                 var origShowToast = showToast;
-                window.showToast = function(msg, type) {
+                window.showToast = function (msg, type) {
                     return origShowToast(localizeFemale(msg), type);
                 };
                 window.showToast._femaleHooked = true;
@@ -407,7 +408,7 @@ const APP_CONFIG = {
 
             if (typeof showCustomConfirm === 'function' && !showCustomConfirm._femaleHooked) {
                 var origConfirm = showCustomConfirm;
-                window.showCustomConfirm = function(msg) {
+                window.showCustomConfirm = function (msg) {
                     return origConfirm(localizeFemale(msg));
                 };
                 window.showCustomConfirm._femaleHooked = true;
