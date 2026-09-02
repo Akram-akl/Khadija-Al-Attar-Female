@@ -48,7 +48,7 @@ const APP_CONFIG = {
         },
         'abeer': {
             name: 'حلقة الأستاذة عبير العلومي',
-            emoji: '<i data-lucide="graduation-cap" class="w-6 h-6 inline-block text-pink-500"></i>',
+            emoji: '<i data-lucide="book-open" class="w-6 h-6 inline-block text-blue-500"></i>',
             isAdult: true
         },
         'hadeel': {
