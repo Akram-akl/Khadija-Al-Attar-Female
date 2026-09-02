@@ -3,7 +3,7 @@ const LEVELS = APP_CONFIG.levels;
 
 // Helper: check if current level is an adult/dariseen level
 function isAdultLevel() {
-    return state.currentLevel === 'abeer';
+    return state.currentLevel === 'abeer' || !!(LEVELS && LEVELS[state.currentLevel] && LEVELS[state.currentLevel].isAdult);
 }
 
 // Helper: check if current level is specifically the ijazat system
