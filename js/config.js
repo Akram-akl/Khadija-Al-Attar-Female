@@ -47,7 +47,7 @@ const APP_CONFIG = {
             emoji: '<i data-lucide="sun" class="w-6 h-6 inline-block text-pink-500"></i>'
         },
         'abeer': {
-            name: 'حلقة الأستاذة عبير العلومي',
+            name: 'حلقة الأستاذة مريم السهلي ',
             emoji: '<i data-lucide="book-open" class="w-6 h-6 inline-block text-blue-500"></i>',
             isAdult: true
         },
