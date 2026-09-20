@@ -24,9 +24,11 @@ const APP_CONFIG = {
     headerColor: '#831843',
     showDemoHints: false,
 
-    // 3. Supabase Configuration
-    supabaseUrl: 'https://ovxhspzsudxybobicvkb.supabase.co',
-    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im92eGhzcHpzdWR4eWJvYmljdmtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDgzODAsImV4cCI6MjEwMzkyNDM4MH0.PuZZ-3Ys4drQF3Fs2S3yaE58AtBBS1TvCBii6wuI5tM',
+    // 3. Database Provider Configuration (PostgreSQL / Hostinger VPS - Supabase Compatible)
+    dbProvider: 'supabase',
+    supabaseUrl: 'https://trackingprogramforakram.duckdns.org',
+    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9.l-6cR50P7V2ZfRCHPwMvq_35ZNwvBd6B6R5L1vki4JU',
+    apiUrl: 'https://trackingprogramforakram.duckdns.org',
 
     // 4. Levels (الحلقات النسائية)
     levels: {

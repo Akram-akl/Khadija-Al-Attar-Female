@@ -641,10 +641,38 @@ DELETE FROM level_settings WHERE feature_name IN ('auth_passwords', 'master_pass
 
 INSERT INTO level_settings (level, feature_name, is_enabled, settings)
 VALUES 
-    ('ibn_umar', 'auth_passwords', true, '{"teacherPass": "1234"}'::jsonb),
-    ('abu_bakr', 'auth_passwords', true, '{"teacherPass": "5678"}'::jsonb),
-    ('ijazat',   'auth_passwords', true, '{"teacherPass": "3456"}'::jsonb),
-    ('_global',  'master_password', true, '{"password": "112233"}'::jsonb);
+    -- Primary (الابتدائي)
+    ('abubakar',    'auth_passwords', true, '{"teacherPass": "487"}'::jsonb),
+    ('ubay',        'auth_passwords', true, '{"teacherPass": "5107"}'::jsonb),
+    ('hamza',       'auth_passwords', true, '{"teacherPass": "6678"}'::jsonb),
+    ('khalid',      'auth_passwords', true, '{"teacherPass": "7863"}'::jsonb),
+    ('abdulrahman', 'auth_passwords', true, '{"teacherPass": "6642"}'::jsonb),
+    
+    -- Middle & High (المتوسط والثانوي)
+    ('anas',        'auth_passwords', true, '{"teacherPass": "6630"}'::jsonb),
+    ('hudhafa',     'auth_passwords', true, '{"teacherPass": "5428"}'::jsonb),
+    ('saad',        'auth_passwords', true, '{"teacherPass": "7781"}'::jsonb),
+    ('amer',        'auth_passwords', true, '{"teacherPass": "7831"}'::jsonb),
+    ('bilal',       'auth_passwords', true, '{"teacherPass": "7832"}'::jsonb),
+    
+    -- University & Employees (المهني والأكاديمي)
+    ('masoud',      'auth_passwords', true, '{"teacherPass": "5053"}'::jsonb),
+    ('abi_amr',     'auth_passwords', true, '{"teacherPass": "5076"}'::jsonb),
+    ('zubair',      'auth_passwords', true, '{"teacherPass": "6348"}'::jsonb),
+    ('shuba',       'auth_passwords', true, '{"teacherPass": "7849"}'::jsonb),
+
+    -- Female Levels (الحلقات النسائية)
+    ('safaa',       'auth_passwords', true, '{"teacherPass": "6545"}'::jsonb),
+    ('marwa',       'auth_passwords', true, '{"teacherPass": "8757"}'::jsonb),
+    ('salwa',       'auth_passwords', true, '{"teacherPass": "5250"}'::jsonb),
+    ('amal',        'auth_passwords', true, '{"teacherPass": "9889"}'::jsonb),
+    ('abeer',       'auth_passwords', true, '{"teacherPass": "9422"}'::jsonb),
+    ('hadeel',      'auth_passwords', true, '{"teacherPass": "5305"}'::jsonb),
+    ('mona',        'auth_passwords', true, '{"teacherPass": "2742"}'::jsonb),
+    ('afnan',       'auth_passwords', true, '{"teacherPass": "4654"}'::jsonb),
+    
+    -- Master Password (الكود الماستر / الإدارة والمشرف)
+    ('_global',     'master_password', true, '{"password": "779812"}'::jsonb);
 
 -- =====================================================
 -- Create Indexes
