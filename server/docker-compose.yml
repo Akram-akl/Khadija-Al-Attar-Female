@@ -1,53 +1,60 @@
 version: '3.8'
 
 services:
-  # 1. PostgreSQL Database Engine (High performance, ~150MB RAM)
-  postgres:
+  # ============================================================
+  # 1. PostgreSQL - الحلقات النسائية (Female Circles Database)
+  #    مشروع مستقل كلياً - قاعدة بيانات منفصلة تماماً
+  # ============================================================
+  postgres_female:
     image: postgres:15-alpine
-    container_name: quran_postgres
+    container_name: quran_postgres_female
     restart: always
     environment:
-      POSTGRES_DB: postgres
+      POSTGRES_DB: quran_female_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:-akram@198@H2009}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata_female:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
 
-  # 2. PostgREST (Converts PostgreSQL into Supabase-compatible REST API automatically)
-  postgrest:
+  # ============================================================
+  # 2. PostgREST - الحلقات النسائية (Female Circles API - Port 4443)
+  #    يعمل على Port 3001 منفصل تماماً
+  # ============================================================
+  postgrest_female:
     image: postgrest/postgrest:v12.0.2
-    container_name: quran_postgrest
+    container_name: quran_postgrest_female
     restart: always
     environment:
-      PGRST_DB_URI: postgres://postgres:akram%40198%40H2009@postgres:5432/postgres
+      PGRST_DB_URI: postgres://postgres:akram%40198%40H2009@postgres_female:5432/quran_female_db
       PGRST_DB_SCHEMA: public
       PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: super-secret-jwt-key-for-quran-app-2026-change-me
-      PGRST_OPENAPI_SERVER_PROXY_URI: https://${DOMAIN_NAME:-trackingprogramforakram.duckdns.org}
+      PGRST_JWT_SECRET: super-secret-jwt-key-female-quran-app-2026-change-me
+      PGRST_OPENAPI_SERVER_PROXY_URI: https://${DOMAIN_NAME:-trackingprogramforakram.duckdns.org}:4443
     depends_on:
-      - postgres
+      - postgres_female
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3001:3000"
 
-  # 3. Caddy Reverse Proxy (Automatic HTTPS SSL certificates)
-  caddy:
+  # ============================================================
+  # 3. Caddy Reverse Proxy - الحلقات النسائية (Port 4443 HTTPS)
+  # ============================================================
+  caddy_female:
     image: caddy:alpine
-    container_name: quran_caddy
+    container_name: quran_caddy_female
     restart: always
     ports:
-      - "80:80"
-      - "443:443"
+      - "4443:4443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
+      - caddy_female_data:/data
+      - caddy_female_config:/config
     depends_on:
-      - postgrest
+      - postgrest_female
 
 volumes:
-  pgdata:
-  caddy_data:
-  caddy_config:
+  pgdata_female:
+  caddy_female_data:
+  caddy_female_config:

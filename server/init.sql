@@ -1,5 +1,6 @@
 -- =====================================================
--- Supabase Schema for برنامج التحفيظ (Self-Hosted on VPS)
+-- Schema for برنامج خديجة العطار - الحلقات النسائية
+-- مشروع مستقل كلياً - Self-Hosted on VPS (Hostinger)
 -- =====================================================
 
 -- Ensure UUID extension is available
@@ -21,7 +22,7 @@ BEGIN
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon;
 END $$;
 
--- 1. Students Table
+-- 1. Students Table (الطالبات)
 CREATE TABLE IF NOT EXISTS students (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     name TEXT NOT NULL,
@@ -135,7 +136,6 @@ CREATE TABLE IF NOT EXISTS scores (
 
 DO $$ 
 BEGIN
-    -- snake_case columns
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='scores' AND column_name='date') THEN
         ALTER TABLE scores ADD COLUMN "date" TEXT;
     END IF;
@@ -156,7 +156,7 @@ BEGIN
     END IF;
 END $$;
 
--- 5. Teachers Table
+-- 5. Teachers Table (المعلمات)
 CREATE TABLE IF NOT EXISTS teachers (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     name TEXT NOT NULL,
@@ -191,11 +191,11 @@ CREATE TABLE IF NOT EXISTS group_scores (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 8. Student Plans Table (Curriculum Management)
+-- 8. Student Plans Table
 CREATE TABLE IF NOT EXISTS student_plans (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    plan_type TEXT NOT NULL, -- 'memorization' or 'review'
+    plan_type TEXT NOT NULL,
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
     start_sura INTEGER NOT NULL,
@@ -205,14 +205,16 @@ CREATE TABLE IF NOT EXISTS student_plans (
     start_page NUMERIC NOT NULL,
     end_page NUMERIC NOT NULL,
     active_week_days JSONB DEFAULT '["sun","mon","tue","wed","thu"]'::jsonb,
-    study_days JSONB DEFAULT '[0,1,2,3,4]'::jsonb, -- NEW: Flexible study days (0=Sun, 4=Thu)
+    study_days JSONB DEFAULT '[0,1,2,3,4]'::jsonb,
+    pages_per_day NUMERIC DEFAULT 1,
+    original_snapshot JSONB,
     level TEXT NOT NULL,
-    status TEXT DEFAULT 'active', -- 'active', 'completed', 'paused'
+    status TEXT DEFAULT 'active',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 9. Plan Daily Records Table (only stores actual events: completed, absent, intensive)
+-- 9. Plan Daily Records Table
 CREATE TABLE IF NOT EXISTS plan_daily_records (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     plan_id UUID REFERENCES student_plans(id) ON DELETE CASCADE,
@@ -232,23 +234,12 @@ CREATE TABLE IF NOT EXISTS plan_daily_records (
     actual_start_ayah INTEGER,
     actual_end_sura INTEGER,
     actual_end_ayah INTEGER,
-    status TEXT DEFAULT 'pending', -- 'completed', 'absent', 'activity_day', 'intensive', 'different'
+    status TEXT DEFAULT 'pending',
     notes TEXT,
+    undo_snapshot JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-
--- New columns for flexible plans
-ALTER TABLE student_plans ADD COLUMN IF NOT EXISTS pages_per_day NUMERIC DEFAULT 1;
-ALTER TABLE plan_daily_records ADD COLUMN IF NOT EXISTS planned_start_sura INTEGER;
-ALTER TABLE plan_daily_records ADD COLUMN IF NOT EXISTS planned_start_ayah INTEGER;
-ALTER TABLE plan_daily_records ADD COLUMN IF NOT EXISTS planned_end_sura INTEGER;
-ALTER TABLE plan_daily_records ADD COLUMN IF NOT EXISTS planned_end_ayah INTEGER;
-ALTER TABLE plan_daily_records ADD COLUMN IF NOT EXISTS actual_start_sura INTEGER;
-ALTER TABLE plan_daily_records ADD COLUMN IF NOT EXISTS actual_start_ayah INTEGER;
-ALTER TABLE plan_daily_records ADD COLUMN IF NOT EXISTS actual_end_sura INTEGER;
-ALTER TABLE plan_daily_records ADD COLUMN IF NOT EXISTS actual_end_ayah INTEGER;
-ALTER TABLE plan_daily_records ADD COLUMN IF NOT EXISTS undo_snapshot JSONB;
 
 -- 10. Level Settings Table
 CREATE TABLE IF NOT EXISTS level_settings (
@@ -262,14 +253,11 @@ CREATE TABLE IF NOT EXISTS level_settings (
     UNIQUE(level, feature_name)
 );
 
--- Force add columns if table already existed without them
 ALTER TABLE level_settings ADD COLUMN IF NOT EXISTS feature_name TEXT;
 ALTER TABLE level_settings ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN DEFAULT FALSE;
 ALTER TABLE level_settings ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE level_settings ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE level_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
-
--- Drop old constraint that forced 1 row per level
 ALTER TABLE level_settings DROP CONSTRAINT IF EXISTS level_settings_level_key;
 
 -- 11. Feedback Table
@@ -291,12 +279,12 @@ CREATE TABLE IF NOT EXISTS transfer_requests (
     from_level TEXT NOT NULL,
     to_level TEXT NOT NULL,
     delete_old_data BOOLEAN DEFAULT FALSE,
-    status TEXT DEFAULT 'pending', -- 'pending', 'rejected'
+    status TEXT DEFAULT 'pending',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 13. Tomorrow Plans Table (خطة الغد المباشرة)
+-- 13. Tomorrow Plans Table
 CREATE TABLE IF NOT EXISTS tomorrow_plans (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
@@ -322,6 +310,53 @@ CREATE TABLE IF NOT EXISTS tomorrow_plans (
     UNIQUE(student_id, for_date)
 );
 
+-- 14. Forms (Surveys) Table
+CREATE TABLE IF NOT EXISTS forms (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    level TEXT NOT NULL,
+    fields JSONB DEFAULT '[]'::jsonb,
+    is_active BOOLEAN DEFAULT TRUE,
+    end_date TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS form_responses (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    form_id UUID REFERENCES forms(id) ON DELETE CASCADE,
+    student_id UUID REFERENCES students(id) ON DELETE CASCADE,
+    level TEXT NOT NULL,
+    responses JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(form_id, student_id)
+);
+
+-- 15. Audit Log Table
+CREATE TABLE IF NOT EXISTS audit_log (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    action TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT,
+    details JSONB,
+    level TEXT,
+    role TEXT,
+    device_info TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 16. Backups Table
+CREATE TABLE IF NOT EXISTS backups (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    level TEXT NOT NULL,
+    backup_data JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- =====================================================
 -- Enable Row Level Security (RLS)
 -- =====================================================
@@ -338,24 +373,16 @@ ALTER TABLE level_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transfer_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tomorrow_plans ENABLE ROW LEVEL SECURITY;
-
--- Tomorrow Plans Policies
-DROP POLICY IF EXISTS "Allow public read tomorrow_plans" ON tomorrow_plans;
-CREATE POLICY "Allow public read tomorrow_plans" ON tomorrow_plans FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Allow public insert tomorrow_plans" ON tomorrow_plans;
-CREATE POLICY "Allow public insert tomorrow_plans" ON tomorrow_plans FOR INSERT WITH CHECK (true);
-DROP POLICY IF EXISTS "Allow public update tomorrow_plans" ON tomorrow_plans;
-CREATE POLICY "Allow public update tomorrow_plans" ON tomorrow_plans FOR UPDATE USING (true);
-DROP POLICY IF EXISTS "Allow public delete tomorrow_plans" ON tomorrow_plans;
-CREATE POLICY "Allow public delete tomorrow_plans" ON tomorrow_plans FOR DELETE USING (true);
+ALTER TABLE forms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE form_responses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE backups ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
--- Create Policies (Using DROP IF EXISTS for idempotency)
+-- Create Policies
 -- =====================================================
-DROP POLICY IF EXISTS "Allow public read students" ON students;
-DROP POLICY IF EXISTS "Allow public insert students" ON students;
-DROP POLICY IF EXISTS "Allow public update students" ON students;
-DROP POLICY IF EXISTS "Allow public delete students" ON students;
+
+-- Students
 DROP POLICY IF EXISTS "Allow public read students" ON students;
 CREATE POLICY "Allow public read students" ON students FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public insert students" ON students;
@@ -365,10 +392,7 @@ CREATE POLICY "Allow public update students" ON students FOR UPDATE USING (true)
 DROP POLICY IF EXISTS "Allow public delete students" ON students;
 CREATE POLICY "Allow public delete students" ON students FOR DELETE USING (true);
 
-DROP POLICY IF EXISTS "Allow public read competitions" ON competitions;
-DROP POLICY IF EXISTS "Allow public insert competitions" ON competitions;
-DROP POLICY IF EXISTS "Allow public update competitions" ON competitions;
-DROP POLICY IF EXISTS "Allow public delete competitions" ON competitions;
+-- Competitions
 DROP POLICY IF EXISTS "Allow public read competitions" ON competitions;
 CREATE POLICY "Allow public read competitions" ON competitions FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public insert competitions" ON competitions;
@@ -378,10 +402,7 @@ CREATE POLICY "Allow public update competitions" ON competitions FOR UPDATE USIN
 DROP POLICY IF EXISTS "Allow public delete competitions" ON competitions;
 CREATE POLICY "Allow public delete competitions" ON competitions FOR DELETE USING (true);
 
-DROP POLICY IF EXISTS "Allow public read groups" ON groups;
-DROP POLICY IF EXISTS "Allow public insert groups" ON groups;
-DROP POLICY IF EXISTS "Allow public update groups" ON groups;
-DROP POLICY IF EXISTS "Allow public delete groups" ON groups;
+-- Groups
 DROP POLICY IF EXISTS "Allow public read groups" ON groups;
 CREATE POLICY "Allow public read groups" ON groups FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public insert groups" ON groups;
@@ -391,10 +412,7 @@ CREATE POLICY "Allow public update groups" ON groups FOR UPDATE USING (true);
 DROP POLICY IF EXISTS "Allow public delete groups" ON groups;
 CREATE POLICY "Allow public delete groups" ON groups FOR DELETE USING (true);
 
-DROP POLICY IF EXISTS "Allow public read scores" ON scores;
-DROP POLICY IF EXISTS "Allow public insert scores" ON scores;
-DROP POLICY IF EXISTS "Allow public update scores" ON scores;
-DROP POLICY IF EXISTS "Allow public delete scores" ON scores;
+-- Scores
 DROP POLICY IF EXISTS "Allow public read scores" ON scores;
 CREATE POLICY "Allow public read scores" ON scores FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public insert scores" ON scores;
@@ -404,10 +422,7 @@ CREATE POLICY "Allow public update scores" ON scores FOR UPDATE USING (true);
 DROP POLICY IF EXISTS "Allow public delete scores" ON scores;
 CREATE POLICY "Allow public delete scores" ON scores FOR DELETE USING (true);
 
-DROP POLICY IF EXISTS "Allow public read teachers" ON teachers;
-DROP POLICY IF EXISTS "Allow public insert teachers" ON teachers;
-DROP POLICY IF EXISTS "Allow public update teachers" ON teachers;
-DROP POLICY IF EXISTS "Allow public delete teachers" ON teachers;
+-- Teachers
 DROP POLICY IF EXISTS "Allow public read teachers" ON teachers;
 CREATE POLICY "Allow public read teachers" ON teachers FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public insert teachers" ON teachers;
@@ -417,10 +432,7 @@ CREATE POLICY "Allow public update teachers" ON teachers FOR UPDATE USING (true)
 DROP POLICY IF EXISTS "Allow public delete teachers" ON teachers;
 CREATE POLICY "Allow public delete teachers" ON teachers FOR DELETE USING (true);
 
-DROP POLICY IF EXISTS "Allow public read activity_days" ON activity_days;
-DROP POLICY IF EXISTS "Allow public insert activity_days" ON activity_days;
-DROP POLICY IF EXISTS "Allow public update activity_days" ON activity_days;
-DROP POLICY IF EXISTS "Allow public delete activity_days" ON activity_days;
+-- Activity Days
 DROP POLICY IF EXISTS "Allow public read activity_days" ON activity_days;
 CREATE POLICY "Allow public read activity_days" ON activity_days FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public insert activity_days" ON activity_days;
@@ -430,10 +442,7 @@ CREATE POLICY "Allow public update activity_days" ON activity_days FOR UPDATE US
 DROP POLICY IF EXISTS "Allow public delete activity_days" ON activity_days;
 CREATE POLICY "Allow public delete activity_days" ON activity_days FOR DELETE USING (true);
 
-DROP POLICY IF EXISTS "Allow public read group_scores" ON group_scores;
-DROP POLICY IF EXISTS "Allow public insert group_scores" ON group_scores;
-DROP POLICY IF EXISTS "Allow public update group_scores" ON group_scores;
-DROP POLICY IF EXISTS "Allow public delete group_scores" ON group_scores;
+-- Group Scores
 DROP POLICY IF EXISTS "Allow public read group_scores" ON group_scores;
 CREATE POLICY "Allow public read group_scores" ON group_scores FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public insert group_scores" ON group_scores;
@@ -443,10 +452,7 @@ CREATE POLICY "Allow public update group_scores" ON group_scores FOR UPDATE USIN
 DROP POLICY IF EXISTS "Allow public delete group_scores" ON group_scores;
 CREATE POLICY "Allow public delete group_scores" ON group_scores FOR DELETE USING (true);
 
-DROP POLICY IF EXISTS "Allow public read student_plans" ON student_plans;
-DROP POLICY IF EXISTS "Allow public insert student_plans" ON student_plans;
-DROP POLICY IF EXISTS "Allow public update student_plans" ON student_plans;
-DROP POLICY IF EXISTS "Allow public delete student_plans" ON student_plans;
+-- Student Plans
 DROP POLICY IF EXISTS "Allow public read student_plans" ON student_plans;
 CREATE POLICY "Allow public read student_plans" ON student_plans FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public insert student_plans" ON student_plans;
@@ -456,10 +462,7 @@ CREATE POLICY "Allow public update student_plans" ON student_plans FOR UPDATE US
 DROP POLICY IF EXISTS "Allow public delete student_plans" ON student_plans;
 CREATE POLICY "Allow public delete student_plans" ON student_plans FOR DELETE USING (true);
 
-DROP POLICY IF EXISTS "Allow public read plan_daily_records" ON plan_daily_records;
-DROP POLICY IF EXISTS "Allow public insert plan_daily_records" ON plan_daily_records;
-DROP POLICY IF EXISTS "Allow public update plan_daily_records" ON plan_daily_records;
-DROP POLICY IF EXISTS "Allow public delete plan_daily_records" ON plan_daily_records;
+-- Plan Daily Records
 DROP POLICY IF EXISTS "Allow public read plan_daily_records" ON plan_daily_records;
 CREATE POLICY "Allow public read plan_daily_records" ON plan_daily_records FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public insert plan_daily_records" ON plan_daily_records;
@@ -469,12 +472,8 @@ CREATE POLICY "Allow public update plan_daily_records" ON plan_daily_records FOR
 DROP POLICY IF EXISTS "Allow public delete plan_daily_records" ON plan_daily_records;
 CREATE POLICY "Allow public delete plan_daily_records" ON plan_daily_records FOR DELETE USING (true);
 
-DROP POLICY IF EXISTS "Allow public read level_settings" ON level_settings;
-DROP POLICY IF EXISTS "Allow public insert level_settings" ON level_settings;
-DROP POLICY IF EXISTS "Allow public update level_settings" ON level_settings;
-DROP POLICY IF EXISTS "Allow public delete level_settings" ON level_settings;
+-- Level Settings (تأمين كلمات المرور)
 DROP POLICY IF EXISTS "Hide passwords from level_settings" ON level_settings;
--- SECURITY: Hide password records from direct reads (verify_password RPC still works as SECURITY DEFINER)
 CREATE POLICY "Hide passwords from level_settings" ON level_settings FOR SELECT
   USING (feature_name NOT IN ('auth_passwords', 'master_password'));
 DROP POLICY IF EXISTS "Allow public insert level_settings" ON level_settings;
@@ -484,10 +483,7 @@ CREATE POLICY "Allow public update level_settings" ON level_settings FOR UPDATE 
 DROP POLICY IF EXISTS "Allow public delete level_settings" ON level_settings;
 CREATE POLICY "Allow public delete level_settings" ON level_settings FOR DELETE USING (true);
 
-DROP POLICY IF EXISTS "Allow public read feedback" ON feedback;
-DROP POLICY IF EXISTS "Allow public insert feedback" ON feedback;
-DROP POLICY IF EXISTS "Allow public update feedback" ON feedback;
-DROP POLICY IF EXISTS "Allow public delete feedback" ON feedback;
+-- Feedback
 DROP POLICY IF EXISTS "Allow public read feedback" ON feedback;
 CREATE POLICY "Allow public read feedback" ON feedback FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow public insert feedback" ON feedback;
@@ -497,85 +493,55 @@ CREATE POLICY "Allow public update feedback" ON feedback FOR UPDATE USING (true)
 DROP POLICY IF EXISTS "Allow public delete feedback" ON feedback;
 CREATE POLICY "Allow public delete feedback" ON feedback FOR DELETE USING (true);
 
+-- Transfer Requests
 DROP POLICY IF EXISTS "Allow public all transfer_requests" ON transfer_requests;
 CREATE POLICY "Allow public all transfer_requests" ON transfer_requests FOR ALL USING (true) WITH CHECK (true);
 
--- =====================================================
--- Enable Realtime
--- =====================================================
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'students') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE students;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'competitions') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE competitions;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'groups') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE groups;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'scores') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE scores;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'teachers') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE teachers;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'activity_days') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE activity_days;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'group_scores') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE group_scores;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'level_settings') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE level_settings;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'feedback') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE feedback;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'transfer_requests') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE transfer_requests;
-    END IF;
-END $$;
+-- Tomorrow Plans
+DROP POLICY IF EXISTS "Allow public read tomorrow_plans" ON tomorrow_plans;
+CREATE POLICY "Allow public read tomorrow_plans" ON tomorrow_plans FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public insert tomorrow_plans" ON tomorrow_plans;
+CREATE POLICY "Allow public insert tomorrow_plans" ON tomorrow_plans FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public update tomorrow_plans" ON tomorrow_plans;
+CREATE POLICY "Allow public update tomorrow_plans" ON tomorrow_plans FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "Allow public delete tomorrow_plans" ON tomorrow_plans;
+CREATE POLICY "Allow public delete tomorrow_plans" ON tomorrow_plans FOR DELETE USING (true);
 
+-- Forms
+DROP POLICY IF EXISTS "Allow public read forms" ON forms;
+CREATE POLICY "Allow public read forms" ON forms FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public insert forms" ON forms;
+CREATE POLICY "Allow public insert forms" ON forms FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public update forms" ON forms;
+CREATE POLICY "Allow public update forms" ON forms FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "Allow public delete forms" ON forms;
+CREATE POLICY "Allow public delete forms" ON forms FOR DELETE USING (true);
 
--- =====================================================
--- NEW FEATURES: Security, Audit, Backup
--- =====================================================
+-- Form Responses
+DROP POLICY IF EXISTS "Allow public read form_responses" ON form_responses;
+CREATE POLICY "Allow public read form_responses" ON form_responses FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public insert form_responses" ON form_responses;
+CREATE POLICY "Allow public insert form_responses" ON form_responses FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public update form_responses" ON form_responses;
+CREATE POLICY "Allow public update form_responses" ON form_responses FOR UPDATE USING (true);
+DROP POLICY IF EXISTS "Allow public delete form_responses" ON form_responses;
+CREATE POLICY "Allow public delete form_responses" ON form_responses FOR DELETE USING (true);
 
--- AUDIT LOG TABLE
-CREATE TABLE IF NOT EXISTS audit_log (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    action TEXT NOT NULL,
-    entity_type TEXT NOT NULL,
-    entity_id TEXT,
-    details JSONB,
-    level TEXT,
-    role TEXT,
-    device_info TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+-- Audit Log
 DROP POLICY IF EXISTS "Allow public insert audit_log" ON audit_log;
 CREATE POLICY "Allow public insert audit_log" ON audit_log FOR INSERT WITH CHECK (true);
 DROP POLICY IF EXISTS "Allow public read audit_log" ON audit_log;
 CREATE POLICY "Allow public read audit_log" ON audit_log FOR SELECT USING (true);
 
--- BACKUPS TABLE
-CREATE TABLE IF NOT EXISTS backups (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    level TEXT NOT NULL,
-    backup_data JSONB NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE backups ENABLE ROW LEVEL SECURITY;
+-- Backups
 DROP POLICY IF EXISTS "Allow public all backups" ON backups;
 CREATE POLICY "Allow public all backups" ON backups FOR ALL USING (true) WITH CHECK (true);
 
--- VERIFY PASSWORD RPC FUNCTION (server-side check)
+-- =====================================================
+-- RPC Functions
+-- =====================================================
+
+-- VERIFY PASSWORD
 CREATE OR REPLACE FUNCTION verify_password(p_level TEXT, p_role TEXT, p_password TEXT)
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -615,10 +581,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- GET LEADERBOARD RPC FUNCTION (server-side calculation)
--- [FIX]: Changed return type from BIGINT to NUMERIC to match the points column type.
---        Previously, the BIGINT cast caused precision loss and type mismatch errors.
--- DROP required because PostgreSQL cannot change return type of existing function directly.
+-- GET LEADERBOARD
 DROP FUNCTION IF EXISTS get_leaderboard(text, uuid);
 CREATE OR REPLACE FUNCTION get_leaderboard(p_level TEXT, p_competition_id UUID DEFAULT NULL)
 RETURNS TABLE(student_id UUID, student_name TEXT, total_points NUMERIC) AS $$
@@ -636,32 +599,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Initial Auth Passwords
+-- =====================================================
+-- Initial Auth Passwords - الحلقات النسائية الثماني فقط
+-- =====================================================
 DELETE FROM level_settings WHERE feature_name IN ('auth_passwords', 'master_password');
 
 INSERT INTO level_settings (level, feature_name, is_enabled, settings)
 VALUES 
-    -- Primary (الابتدائي)
-    ('abubakar',    'auth_passwords', true, '{"teacherPass": "487"}'::jsonb),
-    ('ubay',        'auth_passwords', true, '{"teacherPass": "5107"}'::jsonb),
-    ('hamza',       'auth_passwords', true, '{"teacherPass": "6678"}'::jsonb),
-    ('khalid',      'auth_passwords', true, '{"teacherPass": "7863"}'::jsonb),
-    ('abdulrahman', 'auth_passwords', true, '{"teacherPass": "6642"}'::jsonb),
-    
-    -- Middle & High (المتوسط والثانوي)
-    ('anas',        'auth_passwords', true, '{"teacherPass": "6630"}'::jsonb),
-    ('hudhafa',     'auth_passwords', true, '{"teacherPass": "5428"}'::jsonb),
-    ('saad',        'auth_passwords', true, '{"teacherPass": "7781"}'::jsonb),
-    ('amer',        'auth_passwords', true, '{"teacherPass": "7831"}'::jsonb),
-    ('bilal',       'auth_passwords', true, '{"teacherPass": "7832"}'::jsonb),
-    
-    -- University & Employees (المهني والأكاديمي)
-    ('masoud',      'auth_passwords', true, '{"teacherPass": "5053"}'::jsonb),
-    ('abi_amr',     'auth_passwords', true, '{"teacherPass": "5076"}'::jsonb),
-    ('zubair',      'auth_passwords', true, '{"teacherPass": "6348"}'::jsonb),
-    ('shuba',       'auth_passwords', true, '{"teacherPass": "7849"}'::jsonb),
-
-    -- Female Levels (الحلقات النسائية)
+    -- الحلقات النسائية الثماني (مسجد خديجة العطار)
     ('safaa',       'auth_passwords', true, '{"teacherPass": "6545"}'::jsonb),
     ('marwa',       'auth_passwords', true, '{"teacherPass": "8757"}'::jsonb),
     ('salwa',       'auth_passwords', true, '{"teacherPass": "5250"}'::jsonb),
@@ -671,7 +616,7 @@ VALUES
     ('mona',        'auth_passwords', true, '{"teacherPass": "2742"}'::jsonb),
     ('afnan',       'auth_passwords', true, '{"teacherPass": "4654"}'::jsonb),
     
-    -- Master Password (الكود الماستر / الإدارة والمشرف)
+    -- Master Password (الكود الماستر)
     ('_global',     'master_password', true, '{"password": "779812"}'::jsonb);
 
 -- =====================================================
@@ -682,7 +627,6 @@ CREATE INDEX IF NOT EXISTS idx_activity_days_date ON activity_days(date);
 CREATE INDEX IF NOT EXISTS idx_scores_student_id ON scores(student_id);
 CREATE INDEX IF NOT EXISTS idx_scores_competition_id ON scores(competition_id);
 CREATE INDEX IF NOT EXISTS idx_scores_date ON scores(date);
--- [FIX]: Added missing index on scores.level - critical for leaderboard and export queries
 CREATE INDEX IF NOT EXISTS idx_scores_level ON scores(level);
 CREATE INDEX IF NOT EXISTS idx_scores_level_student_id ON scores(level, student_id);
 CREATE INDEX IF NOT EXISTS idx_students_level ON students(level);
@@ -692,8 +636,12 @@ CREATE INDEX IF NOT EXISTS idx_teachers_level ON teachers(level);
 CREATE INDEX IF NOT EXISTS idx_group_scores_group_id ON group_scores(group_id);
 CREATE INDEX IF NOT EXISTS idx_group_scores_competition_id ON group_scores(competition_id);
 CREATE INDEX IF NOT EXISTS idx_level_settings_level ON level_settings(level);
+CREATE INDEX IF NOT EXISTS idx_tomorrow_plans_student_date ON tomorrow_plans(student_id, for_date);
+CREATE INDEX IF NOT EXISTS idx_tomorrow_plans_level ON tomorrow_plans(level);
 
--- Create trigger functions for updated_at
+-- =====================================================
+-- Trigger: auto update updated_at
+-- =====================================================
 CREATE OR REPLACE FUNCTION trigger_set_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -702,7 +650,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Apply triggers
 DO $$
 DECLARE
     t text;
@@ -716,21 +663,18 @@ BEGIN
 END;
 $$;
 
--- Trigger: Automatically clean up student from groups on deletion
+-- Trigger: Cleanup student from groups on deletion
 CREATE OR REPLACE FUNCTION cleanup_student_from_groups()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Remove student from members array in groups
     UPDATE groups
     SET members = array_remove(members, OLD.id)
     WHERE OLD.id = ANY(members);
 
-    -- Clear leader if the deleted student was the leader
     UPDATE groups
     SET leader = NULL
     WHERE leader = OLD.id;
 
-    -- Clear deputy if the deleted student was the deputy
     UPDATE groups
     SET deputy = NULL
     WHERE deputy = OLD.id;
@@ -744,142 +688,5 @@ CREATE TRIGGER trigger_cleanup_student_groups
 BEFORE DELETE ON students
 FOR EACH ROW
 EXECUTE FUNCTION cleanup_student_from_groups();
-
-
--- ================================================
--- RECENT SCHEMA UPDATES (ALTER TABLES)
--- ================================================
-
--- Add scheduling fields to student_plans
-ALTER TABLE student_plans ADD COLUMN IF NOT EXISTS active_week_days JSONB DEFAULT '["sun","mon","tue","wed","thu"]'::jsonb;
-ALTER TABLE student_plans ADD COLUMN IF NOT EXISTS study_days JSONB DEFAULT '[0,1,2,3,4]'::jsonb;
-ALTER TABLE student_plans ADD COLUMN IF NOT EXISTS pages_per_day NUMERIC DEFAULT 1;
-ALTER TABLE student_plans ADD COLUMN IF NOT EXISTS original_snapshot JSONB;
-
--- ================================================
--- FORMS (Surveys) FEATURE
--- ================================================
-
-CREATE TABLE IF NOT EXISTS forms (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    title TEXT NOT NULL,
-    description TEXT,
-    level TEXT NOT NULL,
-    fields JSONB DEFAULT '[]'::jsonb,
-    is_active BOOLEAN DEFAULT TRUE,
-    end_date TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS form_responses (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    form_id UUID REFERENCES forms(id) ON DELETE CASCADE,
-    student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    level TEXT NOT NULL,
-    responses JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(form_id, student_id)
-);
-
--- RLS for forms
-ALTER TABLE forms ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Allow public read forms" ON forms;
-CREATE POLICY "Allow public read forms" ON forms FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Allow public insert forms" ON forms;
-CREATE POLICY "Allow public insert forms" ON forms FOR INSERT WITH CHECK (true);
-DROP POLICY IF EXISTS "Allow public update forms" ON forms;
-CREATE POLICY "Allow public update forms" ON forms FOR UPDATE USING (true);
-DROP POLICY IF EXISTS "Allow public delete forms" ON forms;
-CREATE POLICY "Allow public delete forms" ON forms FOR DELETE USING (true);
-
--- RLS for form_responses
-ALTER TABLE form_responses ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Allow public read form_responses" ON form_responses;
-CREATE POLICY "Allow public read form_responses" ON form_responses FOR SELECT USING (true);
-DROP POLICY IF EXISTS "Allow public insert form_responses" ON form_responses;
-CREATE POLICY "Allow public insert form_responses" ON form_responses FOR INSERT WITH CHECK (true);
-DROP POLICY IF EXISTS "Allow public update form_responses" ON form_responses;
-CREATE POLICY "Allow public update form_responses" ON form_responses FOR UPDATE USING (true);
-DROP POLICY IF EXISTS "Allow public delete form_responses" ON form_responses;
-CREATE POLICY "Allow public delete form_responses" ON form_responses FOR DELETE USING (true);
-
--- Add to realtime
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'forms') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE forms;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'form_responses') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE form_responses;
-    END IF;
-END $$;
-
--- ================================================
--- TOMORROW PLANS FEATURE
--- خطة الغد: يحدد المعلم ما سيُسمَّع للطالب غداً
--- ================================================
-
-CREATE TABLE IF NOT EXISTS tomorrow_plans (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-    student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    level TEXT NOT NULL,
-    -- قسم الحفظ / مراجعة صغرى
-    hifz_start_sura INTEGER,
-    hifz_start_ayah INTEGER,
-    hifz_end_sura INTEGER,
-    hifz_end_ayah INTEGER,
-    hifz_start_page NUMERIC,
-    hifz_end_page NUMERIC,
-    hifz_sections JSONB DEFAULT '[]'::jsonb,
-    -- قسم المراجعة الكبرى
-    review_start_sura INTEGER,
-    review_start_ayah INTEGER,
-    review_end_sura INTEGER,
-    review_end_ayah INTEGER,
-    review_start_page NUMERIC,
-    review_end_page NUMERIC,
-    review_sections JSONB DEFAULT '[]'::jsonb,
-    -- التاريخ الذي ستُطبَّق فيه الخطة (= غد وقت الإنشاء)
-    for_date TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    -- خطة واحدة لكل طالب لكل يوم
-    UNIQUE(student_id, for_date)
-);
-
-ALTER TABLE tomorrow_plans ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Allow public all tomorrow_plans" ON tomorrow_plans;
-CREATE POLICY "Allow public all tomorrow_plans" ON tomorrow_plans FOR ALL USING (true) WITH CHECK (true);
-
-CREATE INDEX IF NOT EXISTS idx_tomorrow_plans_student_date ON tomorrow_plans(student_id, for_date);
-CREATE INDEX IF NOT EXISTS idx_tomorrow_plans_level ON tomorrow_plans(level);
-
--- Add to Realtime
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND tablename = 'tomorrow_plans') THEN
-        ALTER PUBLICATION supabase_realtime ADD TABLE tomorrow_plans;
-    END IF;
-END $$;
-
--- ================================================
--- KEEP-ALIVE: استعلام دوري لمنع تجميد المشروع
--- (يعمل فقط إذا كان pg_cron مفعّلاً - الخطط المدفوعة)
--- ================================================
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
-        PERFORM cron.schedule(
-            'keep-alive-project',
-            '0 9 */3 * *',
-            $cron$SELECT count(*) FROM students LIMIT 1$cron$
-        );
-    END IF;
-EXCEPTION WHEN OTHERS THEN
-    -- pg_cron not available, skip silently
-    NULL;
-END $$;
 
 NOTIFY pgrst, 'reload schema';

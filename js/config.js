@@ -24,11 +24,13 @@ const APP_CONFIG = {
     headerColor: '#831843',
     showDemoHints: false,
 
-    // 3. Database Provider Configuration (PostgreSQL / Hostinger VPS - Supabase Compatible)
+    // 3. Database Provider Configuration (PostgreSQL / Hostinger VPS - مستقل للحلقات النسائية)
+    // الحلقات النسائية تعمل على قاعدة بيانات خاصة بها: quran_female_db
+    // منفصلة تماماً عن الحلقات الذكورية على نفس السيرفر
     dbProvider: 'supabase',
-    supabaseUrl: 'https://trackingprogramforakram.duckdns.org',
+    supabaseUrl: 'https://trackingprogramforakram.duckdns.org:4443',
     supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9.l-6cR50P7V2ZfRCHPwMvq_35ZNwvBd6B6R5L1vki4JU',
-    apiUrl: 'https://trackingprogramforakram.duckdns.org',
+    apiUrl: 'https://trackingprogramforakram.duckdns.org:4443',
 
     // 4. Levels (الحلقات النسائية)
     levels: {

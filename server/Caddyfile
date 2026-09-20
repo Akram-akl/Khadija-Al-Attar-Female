@@ -1,0 +1,13 @@
+# =====================================================================
+# الحلقات النسائية - خديجة العطار - مستقل كلياً على Port 4443
+# Female Circles - Completely Separate Project on Port 4443
+# =====================================================================
+trackingprogramforakram.duckdns.org:4443 {
+    # Strip /rest/v1 prefix and route to female PostgREST
+    handle_path /rest/v1/* {
+        reverse_proxy postgrest_female:3000
+    }
+
+    # Route everything else to female PostgREST
+    reverse_proxy postgrest_female:3000
+}
