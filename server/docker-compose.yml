@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Database Engine (High performance, ~150MB RAM)
+  postgres:
+    image: postgres:15-alpine
+    container_name: quran_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-akram@198@H2009}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  # 2. PostgREST (Converts PostgreSQL into Supabase-compatible REST API automatically)
+  postgrest:
+    image: postgrest/postgrest:v12.0.2
+    container_name: quran_postgrest
+    restart: always
+    environment:
+      PGRST_DB_URI: postgres://postgres:akram%40198%40H2009@postgres:5432/postgres
+      PGRST_DB_SCHEMA: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: super-secret-jwt-key-for-quran-app-2026-change-me
+      PGRST_OPENAPI_SERVER_PROXY_URI: https://${DOMAIN_NAME:-trackingprogramforakram.duckdns.org}
+    depends_on:
+      - postgres
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  # 3. Caddy Reverse Proxy (Automatic HTTPS SSL certificates)
+  caddy:
+    image: caddy:alpine
+    container_name: quran_caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - postgrest
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

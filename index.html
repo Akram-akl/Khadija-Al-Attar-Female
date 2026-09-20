@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 
 <head>
@@ -68,7 +68,7 @@
     <link rel="icon" type="image/jpeg" href="./apple-touch-icon.jpg">
 
     <!-- Config & Tailwind -->
-    <script src="./js/config.js?v=2"></script>
+    <script src="./js/config.js?v=1"></script>
     <script>
         // Inject dynamic CSS from APP_CONFIG (header color, background pattern)
         if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.themeColors) {
@@ -123,9 +123,18 @@
     <link rel="stylesheet" href="./css/styles.css?v=3.1">
 
 
-    <!-- Supabase SDK -->
+    <!-- Realtime Engine (Socket.io) -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+    <!-- Database Providers -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script>document.write('<scr'+'ipt src="./js/supabase.js?v='+Date.now()+'"><\/scr'+'ipt>');</script>
+    <script>
+        if (typeof APP_CONFIG !== 'undefined' && APP_CONFIG.dbProvider === 'mssql') {
+            document.write('<scr'+'ipt src="./js/mssql-client.js?v='+Date.now()+'"><\/scr'+'ipt>');
+        } else {
+            document.write('<scr'+'ipt src="./js/supabase.js?v='+Date.now()+'"><\/scr'+'ipt>');
+        }
+    </script>
 </head>
 
 

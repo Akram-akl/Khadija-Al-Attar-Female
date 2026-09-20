@@ -71,8 +71,13 @@ window.getHijriInfo = function(dateInput) {
 })();
 
 // Helper: check if current level is an adult/dariseen level
-function isAdultLevel() {
-    return state.currentLevel === 'ijazat' || state.currentLevel === 'abu_bakr';
+function isAdultLevel(lvl = null) {
+    const targetLvl = lvl || state.currentLevel;
+    if (!targetLvl) return false;
+    if (typeof LEVELS !== 'undefined' && LEVELS[targetLvl] && LEVELS[targetLvl].isAdult) {
+        return true;
+    }
+    return targetLvl === 'ijazat' || targetLvl === 'abu_bakr';
 }
 
 // Helper: check if current level is specifically the ijazat system
@@ -453,17 +458,36 @@ function performStudentLogin() {
 async function performTeacherLogin() {
     const password = $('#teacher-password-input').value;
     const selectedLevel = $('#teacher-level-select').value;
+    const submitBtn = $('#teacher-password-section button[type="submit"]');
+
+    if (!password) {
+        showToast("الرجاء إدخال كلمة المرور", "error");
+        return;
+    }
+
+    // Immediate visual feedback so user sees instant reaction
+    const origBtnHtml = submitBtn ? submitBtn.innerHTML : 'تحقق';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `
+            <span class="inline-flex items-center justify-center gap-2">
+                <svg class="animate-spin h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                جاري التحقق...
+            </span>
+        `;
+    }
 
     try {
-        // 1. Check if it's a master password (server-side)
-        const isMaster = await window.firebaseOps.rpc('verify_password', {
-            p_level: '_global',
-            p_role: 'teacher',
-            p_password: password
-        });
-
-        // Special case: "admin" option selected
+        // Case 1: General Admin option selected
         if (selectedLevel === 'admin') {
+            const isMaster = await window.firebaseOps.rpc('verify_password', {
+                p_level: '_global',
+                p_role: 'teacher',
+                p_password: password
+            });
             if (isMaster) {
                 finishTeacherLogin('admin');
             } else {
@@ -472,60 +496,67 @@ async function performTeacherLogin() {
             return;
         }
 
-        if (isMaster) {
-            if (selectedLevel) {
+        // Case 2: Specific Level is selected (PostgreSQL verify_password checks BOTH master pass & ring pass in a single query)
+        if (selectedLevel) {
+            const isValid = await window.firebaseOps.rpc('verify_password', {
+                p_level: selectedLevel,
+                p_role: 'teacher',
+                p_password: password
+            });
+
+            if (isValid) {
                 finishTeacherLogin(selectedLevel);
             } else {
-                // No level selected -> Show Level Selector Grid
-                $('#teacher-password-section').classList.add('hidden');
-                $('#teacher-level-selection').classList.remove('hidden');
-                const container = $('#teacher-level-grid');
-                const adminCardHtml = `
-                     <button onclick="finishTeacherLogin('admin')" class="col-span-2 p-4 bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 text-white rounded-2xl shadow-xl border-2 border-purple-400 hover:brightness-110 transition text-right flex items-center justify-between group">
-                        <div class="flex items-center gap-3">
-                            <div class="text-3xl bg-white/20 p-2.5 rounded-xl">🏢</div>
-                            <div>
-                                <div class="text-base font-black">الإدارة العامة والمشرف</div>
-                                <div class="text-xs text-purple-200">متابعة كافة الحلقات، الإحصائيات، والتقارير</div>
-                            </div>
-                        </div>
-                        <i data-lucide="chevron-left" class="w-6 h-6 text-purple-200 group-hover:-translate-x-1 transition"></i>
-                     </button>
-                `;
-                container.innerHTML = adminCardHtml + Object.entries(LEVELS)
-                    .filter(([key, config]) => !config.hidden)
-                    .map(([key, config]) => `
-                     <button onclick="finishTeacherLogin('${key}')" class="p-4 bg-emerald-50 dark:bg-gray-700 rounded-xl border border-emerald-100 dark:border-gray-600 hover:border-emerald-600 transition text-center">
-                        <div class="text-2xl mb-2">${config.emoji}</div>
-                        <div class="text-sm font-bold text-gray-800 dark:text-gray-100">${config.name}</div>
-                     </button>
-                `).join('');
-                if (window.lucide) lucide.createIcons();
+                showToast("كلمة المرور غير صحيحة للمرحلة المختارة", "error");
             }
             return;
         }
 
-        // 2. Strict Level Logic
-        if (!selectedLevel) {
-            showToast("الرجاء اختيار المرحلة أولاً", "error");
-            return;
-        }
-
-        // Check level-specific password (server-side)
-        const isValid = await window.firebaseOps.rpc('verify_password', {
-            p_level: selectedLevel,
+        // Case 3: No level selected -> Check master password to show level selector grid
+        const isMaster = await window.firebaseOps.rpc('verify_password', {
+            p_level: '_global',
             p_role: 'teacher',
             p_password: password
         });
 
-        if (isValid) {
-            finishTeacherLogin(selectedLevel);
-        } else {
-            showToast("كلمة المرور غير صحيحة للمرحلة المختارة", "error");
+        if (isMaster) {
+            $('#teacher-password-section').classList.add('hidden');
+            $('#teacher-level-selection').classList.remove('hidden');
+            const container = $('#teacher-level-grid');
+            const adminCardHtml = `
+                 <button onclick="finishTeacherLogin('admin')" class="col-span-2 p-4 bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 text-white rounded-2xl shadow-xl border-2 border-purple-400 hover:brightness-110 transition text-right flex items-center justify-between group">
+                    <div class="flex items-center gap-3">
+                        <div class="text-3xl bg-white/20 p-2.5 rounded-xl">🏢</div>
+                        <div>
+                            <div class="text-base font-black">الإدارة العامة والمشرف</div>
+                            <div class="text-xs text-purple-200">متابعة كافة الحلقات، الإحصائيات، والتقارير</div>
+                        </div>
+                    </div>
+                    <i data-lucide="chevron-left" class="w-6 h-6 text-purple-200 group-hover:-translate-x-1 transition"></i>
+                 </button>
+            `;
+            container.innerHTML = adminCardHtml + Object.entries(LEVELS)
+                .filter(([key, config]) => !config.hidden)
+                .map(([key, config]) => `
+                 <button onclick="finishTeacherLogin('${key}')" class="p-4 bg-emerald-50 dark:bg-gray-700 rounded-xl border border-emerald-100 dark:border-gray-600 hover:border-emerald-600 transition text-center">
+                    <div class="text-2xl mb-2">${config.emoji}</div>
+                    <div class="text-sm font-bold text-gray-800 dark:text-gray-100">${config.name}</div>
+                 </button>
+            `).join('');
+            if (window.lucide) lucide.createIcons();
+            return;
         }
+
+        showToast("الرجاء اختيار المرحلة أولاً أو إدخال الكود الماستر", "error");
+
     } catch (e) {
         console.error(e);
         showToast("خطأ في التحقق من كلمة المرور", "error");
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = origBtnHtml;
+        }
     }
 }
 
@@ -671,6 +702,10 @@ function completeLogin() {
     if (state.isTeacher && state.currentLevel !== 'admin') {
         setTimeout(() => checkAndRunAutoBackup(), 3000);
     }
+
+    setTimeout(() => {
+        if (typeof cleanupDuplicateAbsencesInDB === 'function') cleanupDuplicateAbsencesInDB();
+    }, 2000);
 
     // Pre-load Quran Data to make search instant
     if (typeof QuranService !== 'undefined') {
@@ -3371,13 +3406,48 @@ async function performDeleteStudent() {
         // --- Delete the student record itself (Hard delete from database) ---
         await window.firebaseOps.deleteDoc(window.firebaseOps.doc(window.db, "students", studentToDeleteId));
         
-        // Remove from local parent state if in parent view
-        if (state.isParent) {
-            state.parentStudents = state.parentStudents.filter(s => s.id !== studentToDeleteId);
+        // Remove from local memory state immediately across all arrays
+        const deletedId = studentToDeleteId;
+        if (state.students && Array.isArray(state.students)) {
+            state.students = state.students.filter(s => s.id !== deletedId);
+        }
+        if (state.parentStudents && Array.isArray(state.parentStudents)) {
+            state.parentStudents = state.parentStudents.filter(s => s.id !== deletedId);
+        }
+        if (state.homeStudents && Array.isArray(state.homeStudents)) {
+            state.homeStudents = state.homeStudents.filter(s => s.id !== deletedId);
+        }
+        if (state.allStudents && Array.isArray(state.allStudents)) {
+            state.allStudents = state.allStudents.filter(s => s.id !== deletedId);
+        }
+
+        // Close any open modals related to student or deletion
+        closeModal('delete-modal-v2');
+        closeModal('student-report-modal');
+        closeModal('student-modal');
+        closeModal('rate-student-modal');
+
+        // Trigger UI refresh immediately so student disappears from view completely
+        if (state.currentView === 'students') {
+            const searchVal = document.getElementById('student-search-input')?.value || '';
+            if (searchVal && typeof filterStudents === 'function') {
+                filterStudents(searchVal);
+            } else if (typeof updateStudentsListUI === 'function') {
+                updateStudentsListUI();
+            } else if (typeof renderStudents === 'function') {
+                renderStudents();
+            }
+        } else if (state.currentView === 'home' && typeof renderHome === 'function') {
+            renderHome();
+        } else if (state.currentView === 'direct_grading' && typeof updateDirectStudentsList === 'function') {
+            updateDirectStudentsList();
+        } else if (typeof refreshAllData === 'function') {
+            refreshAllData();
+        } else if (typeof router !== 'undefined' && typeof router.refresh === 'function') {
+            router.refresh();
         }
 
         showToast("تم الحذف النهائي والكامل للملف والدرجات والخطط بنجاح");
-        closeModal('delete-modal-v2');
 
         // Audit log — critical operation
         logAuditEvent('delete_student', 'student', studentToDeleteId, { studentName });
@@ -3392,6 +3462,10 @@ async function performDeleteStudent() {
 let currentManageCompId = null;
 
 function openManageGroups(compId, compName) {
+    if (!compId) {
+        showToast("يرجى إنشاء مسابقة أولاً لإدارة المجموعات الخاصة بها", "warning");
+        return;
+    }
     currentManageCompId = compId;
     $('#groups-comp-name').textContent = compName;
 
@@ -3469,6 +3543,107 @@ function fetchGroupsForCompetition(compId) {
     });
 }
 
+// =====================================================
+// Helper: Deduplicate ABSENCE_RECORD entries by studentId + date
+// Ensures each student has at most ONE absence record per calendar date across the entire app
+// =====================================================
+function sanitizeStudentScores(scoresList) {
+    if (!Array.isArray(scoresList) || scoresList.length === 0) return [];
+    
+    const absenceMap = new Map();
+    const otherScores = [];
+
+    scoresList.forEach(s => {
+        if (!s) return;
+        const cId = s.criteriaId || '';
+        const cName = s.criteriaName || s.criteria_name || '';
+        const isAbsence = cId === 'ABSENCE_RECORD' || s.type === 'absence' || cName.includes('غياب');
+
+        if (isAbsence) {
+            const sid = s.studentId || s.student_id || (window._currentStudentData && window._currentStudentData.id) || 'single_st';
+            const date = s.date || '';
+            const key = `${sid}_${date}`;
+            const sTime = new Date(s.updatedAt || s.created_at || s.timestamp || 0).getTime();
+            if (!absenceMap.has(key)) {
+                absenceMap.set(key, s);
+            } else {
+                const existing = absenceMap.get(key);
+                const existingTime = new Date(existing.updatedAt || existing.created_at || existing.timestamp || 0).getTime();
+                if (sTime > existingTime) {
+                    absenceMap.set(key, s);
+                } else if (sTime === existingTime) {
+                    if (cName.includes('بعذر') && !(existing.criteriaName || '').includes('بعذر')) {
+                        absenceMap.set(key, s);
+                    }
+                }
+            }
+        } else {
+            otherScores.push(s);
+        }
+    });
+
+    return [...otherScores, ...Array.from(absenceMap.values())];
+}
+window.sanitizeStudentScores = sanitizeStudentScores;
+
+let _hasRunDbAbsenceCleanup = false;
+async function cleanupDuplicateAbsencesInDB() {
+    if (_hasRunDbAbsenceCleanup) return;
+    _hasRunDbAbsenceCleanup = true;
+    try {
+        const q = window.firebaseOps.query(
+            window.firebaseOps.collection(window.db, "scores")
+        );
+        const snap = await window.firebaseOps.getDocs(q);
+        const map = new Map();
+        const duplicatesToDelete = [];
+
+        snap.docs.forEach(doc => {
+            const data = doc.data();
+            const sid = data.studentId || data.student_id;
+            const date = data.date;
+            if (!sid || !date) return;
+            const cId = data.criteriaId || '';
+            const cName = data.criteriaName || data.criteria_name || '';
+            const isAbs = cId === 'ABSENCE_RECORD' || data.type === 'absence' || cName.includes('غياب');
+            if (!isAbs) return;
+
+            const key = `${sid}_${date}`;
+            const sTime = new Date(data.updatedAt || data.created_at || data.timestamp || 0).getTime();
+
+            if (!map.has(key)) {
+                map.set(key, { id: doc.id, sTime, cName });
+            } else {
+                const existing = map.get(key);
+                if (sTime > existing.sTime) {
+                    duplicatesToDelete.push(existing.id);
+                    map.set(key, { id: doc.id, sTime, cName });
+                } else if (sTime === existing.sTime) {
+                    if (cName.includes('بعذر') && !existing.cName.includes('بعذر')) {
+                        duplicatesToDelete.push(existing.id);
+                        map.set(key, { id: doc.id, sTime, cName });
+                    } else {
+                        duplicatesToDelete.push(doc.id);
+                    }
+                } else {
+                    duplicatesToDelete.push(doc.id);
+                }
+            }
+        });
+
+        if (duplicatesToDelete.length > 0) {
+            console.log(`[CleanUp] Found ${duplicatesToDelete.length} duplicate absence rows in DB. Deleting...`);
+            for (const docId of duplicatesToDelete) {
+                if (docId) await window.firebaseOps.deleteDoc(window.firebaseOps.doc(window.db, "scores", docId));
+            }
+            console.log(`[CleanUp] Successfully deleted ${duplicatesToDelete.length} duplicate absence rows.`);
+        }
+    } catch (e) {
+        console.warn("Auto cleanup duplicate absences failed:", e);
+    }
+}
+window.cleanupDuplicateAbsencesInDB = cleanupDuplicateAbsencesInDB;
+
 async function viewGroupStudents(groupId) {
     const group = state.groups.find(g => g.id === groupId);
     if (!group) {
@@ -3492,8 +3667,11 @@ async function viewGroupStudents(groupId) {
             window.firebaseOps.where("level", "==", comp ? comp.level : state.currentLevel)
         );
         const scoresSnap = await window.firebaseOps.getDocs(scoresQ);
-        scoresSnap.forEach(doc => {
-            const s = doc.data();
+        const rawScores = [];
+        scoresSnap.forEach(doc => rawScores.push(doc.data()));
+        const cleanScores = sanitizeStudentScores(rawScores);
+
+        cleanScores.forEach(s => {
             if (memberIds.includes(s.studentId)) {
                 let include = false;
                 if (s.criteriaId === 'ABSENCE_RECORD' || s.criteriaId === 'ACTIVITY_DAY' || s.criteriaId === 'TEACHER_NOTE') {
@@ -3616,13 +3794,14 @@ async function generateGroupWeeklyReport(groupId) {
         );
 
         const snap = await window.firebaseOps.getDocs(scoresQuery);
-        const scores = [];
+        const rawScores = [];
         snap.forEach(d => {
             const data = d.data();
             if (memberIds.includes(data.studentId)) {
-                scores.push(data);
+                rawScores.push(data);
             }
         });
+        const scores = sanitizeStudentScores(rawScores);
 
         // NEW: Fetch Activity Days Log
         const activityQuery = window.firebaseOps.query(
@@ -3862,12 +4041,23 @@ async function saveGroupChanges() {
     const icon = $('#group-icon').value;
     const members = Array.from($$('.group-member-checkbox:checked')).map(cb => cb.value);
 
+    if (!currentManageCompId) {
+        showToast("لا توجد مسابقة محددة للمجموعات، يرجى إنشاء مسابقة في هذه الحلقة أولاً", "error");
+        return;
+    }
+
+    const compExists = state.competitions && state.competitions.some(c => c.id === currentManageCompId);
+    if (!compExists) {
+        showToast("المسابقة المرتبطة بهذه المجموعة غير موجودة بالسيرفر، يرجى اختيار مسابقة صالحة أولاً", "error");
+        return;
+    }
+
     // إضافة القائد والنائب للأعضاء إذا لم يكونوا موجودين
     if (leader && !members.includes(leader)) members.push(leader);
     if (deputy && !members.includes(deputy)) members.push(deputy);
 
     if (!name) { showToast("اسم المجموعة مطلوب", "error"); return; }
-    if (!leader && !deputy) { showToast("يرجى تحديد قائد أو نائب للمجموعة على الأقل", "warning"); return; }
+    if (!leader && !deputy) { showToast("يرجى تحديد قائد أو نائب للمجموعات على الأقل", "warning"); return; }
 
     // Check if any student is already in another group for this competition
     try {
@@ -4038,6 +4228,39 @@ async function undoScoreById(scoreId, btnEl, restoreLabel) {
                         }
                     }
                 } catch(revertErr) { console.warn('revert plan daily error:', revertErr); }
+            }
+
+            // معالجة التراجع عن الغياب: حذف أي سجلات غياب مكررة لنفس الطالب والتاريخ وتحديث التقويم الحي
+            const isAbsenceUndo = (restoreLabel && restoreLabel.includes('الغياب')) || (btnEl && btnEl.id === 'absence-undo-btn');
+            if (isAbsenceUndo) {
+                try {
+                    const uDate = document.getElementById('modal-grading-date')?.value || new Date().toISOString().split('T')[0];
+                    const uSid = window.currentRateStudentId || (typeof currentRateStudentId !== 'undefined' ? currentRateStudentId : null);
+                    if (uDate && uSid) {
+                        const absQ = window.firebaseOps.query(
+                            window.firebaseOps.collection(window.db, 'scores'),
+                            window.firebaseOps.where('studentId', '==', uSid),
+                            window.firebaseOps.where('date', '==', uDate),
+                            window.firebaseOps.where('criteriaId', '==', 'ABSENCE_RECORD')
+                        );
+                        const absSnap = await window.firebaseOps.getDocs(absQ);
+                        for (const doc of absSnap.docs) {
+                            await window.firebaseOps.deleteDoc(window.firebaseOps.doc(window.db, 'scores', doc.id));
+                        }
+                    }
+                } catch(absErr) { console.warn('clean duplicate absences on undo:', absErr); }
+            }
+
+            if (window._currentStudentScores && Array.isArray(window._currentStudentScores)) {
+                const sIdx = window._currentStudentScores.findIndex(s => s.id === scoreId);
+                if (sIdx >= 0) window._currentStudentScores.splice(sIdx, 1);
+                if (isAbsenceUndo) {
+                    const uDate = document.getElementById('modal-grading-date')?.value || new Date().toISOString().split('T')[0];
+                    window._currentStudentScores = window._currentStudentScores.filter(s => !(s.criteriaId === 'ABSENCE_RECORD' && s.date === uDate));
+                }
+            }
+            if (typeof window.renderStudentCalendar === 'function' && window._currentCalendarYear !== undefined && document.getElementById('student-calendar-container')) {
+                window.renderStudentCalendar(window._currentCalendarYear, window._currentCalendarMonth);
             }
 
             btnEl.setAttribute('data-score-id', '');
@@ -6050,7 +6273,7 @@ function init() {
                 regPanel.classList.remove('hidden');
                 
                 // Update labels dynamically based on level
-                const isAdult = lvl === 'ijazat' || lvl === 'abu_bakr';
+                const isAdult = isAdultLevel(lvl);
                 document.getElementById('self-reg-title').textContent = isAdult ? 'تسجيل دارس جديد 📝' : 'تسجيل طالب جديد 📝';
                 document.getElementById('self-reg-name-label').textContent = 'ما اسمك؟ (الاسم الرباعي)';
                 document.getElementById('self-reg-phone-label').textContent = isAdult ? 'رقم جوالك الشخصي' : 'رقم جوال ولي أمرك';
@@ -6079,6 +6302,11 @@ function init() {
         // Replace initial state so Android Back button exits app from start screen
         history.replaceState({ view: startView }, '', `#${startView}`);
         router.render(startView);
+
+        // تنظيف تلقائي للغيابات المكررة في قاعدة البيانات
+        setTimeout(() => {
+            if (typeof cleanupDuplicateAbsencesInDB === 'function') cleanupDuplicateAbsencesInDB();
+        }, 2000);
 
         // ✅ Auto-backup: check 3 seconds after teacher login (skip for admin)
         if (state.isTeacher && state.currentLevel !== 'admin') {
@@ -6583,8 +6811,9 @@ async function generateWeeklyReport() {
         );
 
         const snap = await window.firebaseOps.getDocs(q);
-        const scores = [];
-        snap.forEach(d => scores.push(d.data()));
+        const rawScores = [];
+        snap.forEach(d => rawScores.push(d.data()));
+        const scores = sanitizeStudentScores(rawScores);
 
         // NEW: Fetch Activity Days Log
         const activityLog = {}; // date -> points
@@ -7031,12 +7260,40 @@ async function openStudentReport(studentId) {
         window.firebaseOps.where("studentId", "==", studentId)
     );
     const scoresSnap = await window.firebaseOps.getDocs(scoresQuery);
-    const scores = [];
+    const rawScores = [];
     scoresSnap.forEach(function (doc) {
         var data = doc.data();
         data.id = doc.id;
-        scores.push(data);
+        rawScores.push(data);
     });
+    const scores = sanitizeStudentScores(rawScores);
+
+    // تنظيف صامت فوري لأي سجلات غياب مكررة في قاعدة البيانات لهذا الطالب
+    (async () => {
+        try {
+            const absList = rawScores.filter(s => s && (s.criteriaId === 'ABSENCE_RECORD' || (s.criteriaName && s.criteriaName.includes('غياب'))));
+            const seenMap = new Map();
+            const dupIds = [];
+            absList.forEach(s => {
+                if (!s.date) return;
+                const sTime = new Date(s.updatedAt || s.created_at || s.timestamp || 0).getTime();
+                if (!seenMap.has(s.date)) {
+                    seenMap.set(s.date, { id: s.id, sTime });
+                } else {
+                    const prev = seenMap.get(s.date);
+                    if (sTime > prev.sTime) {
+                        if (prev.id) dupIds.push(prev.id);
+                        seenMap.set(s.date, { id: s.id, sTime });
+                    } else {
+                        if (s.id) dupIds.push(s.id);
+                    }
+                }
+            });
+            for (const dId of dupIds) {
+                if (dId) await window.firebaseOps.deleteDoc(window.firebaseOps.doc(window.db, "scores", dId));
+            }
+        } catch(e) { console.warn("Auto cleanup on report load:", e); }
+    })();
 
     // Calculate statistics
     let totalPoints = 0;
@@ -7051,11 +7308,12 @@ async function openStudentReport(studentId) {
     scores.forEach(s => {
         totalPoints += (s.points || 0);
 
+        const isAbs = s.criteriaId === 'ABSENCE_RECORD' || (s.criteriaName && s.criteriaName.includes('غياب'));
         if (s.criteriaId === 'ACTIVITY_DAY') {
             activityDaysRecords.push({ date: s.date || 'غير محدد', points: s.points || 0, name: s.criteriaName || 'حضور يوم نشاط' });
-        } else if (s.criteriaId === 'ABSENCE_RECORD') {
+        } else if (isAbs) {
             absenceDays++;
-            if (s.criteriaName && s.criteriaName.indexOf('بعذر') !== -1) {
+            if (s.criteriaName && s.criteriaName.indexOf('بعذر') !== -1 && s.criteriaName.indexOf('بدون') === -1) {
                 absenceWithExcuse++;
                 absenceRecordsWithExcuse.push({ date: s.date || 'غير محدد', points: s.points });
             } else {
@@ -7534,7 +7792,7 @@ window.renderStudentCalendar = (year, month) => {
     const container = document.getElementById('student-calendar-container');
     if (!container) return;
     
-    const scores = window._currentStudentScores || [];
+    const scores = sanitizeStudentScores(window._currentStudentScores || []);
     const todayDate = new Date();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const firstDay = new Date(year, month, 1).getDay();
@@ -7544,7 +7802,11 @@ window.renderStudentCalendar = (year, month) => {
         if (!s.date) return;
         if (!scoresByDate[s.date]) scoresByDate[s.date] = { points: 0, criteria: [], hasQuran: false, quranTypes: [], notes: [] };
         scoresByDate[s.date].points += (parseFloat(s.points) || 0);
-        scoresByDate[s.date].criteria.push(s.criteriaName || (s.criteriaId === 'ABSENCE_RECORD' ? 'غياب' : 'أخرى'));
+        const isAbs = s.criteriaId === 'ABSENCE_RECORD' || (s.criteriaName && s.criteriaName.includes('غياب'));
+        const cLabel = s.criteriaName || (isAbs ? 'غياب' : 'أخرى');
+        if (!scoresByDate[s.date].criteria.includes(cLabel)) {
+            scoresByDate[s.date].criteria.push(cLabel);
+        }
         
         if (s.criteriaId === 'TEACHER_NOTE' && (s.noteText || s.note_text)) {
             // توحيد camelCase و snake_case
@@ -7789,8 +8051,9 @@ window._openQuranForScore = async (scoreId) => {
 };
 
 window.showDayDetails = (dateStr) => {
-    const scores = window._currentStudentScores || [];
-    const dayScores = scores.filter(s => s.date === dateStr);
+    const scores = sanitizeStudentScores(window._currentStudentScores || []);
+    const rawDayScores = scores.filter(s => s.date === dateStr);
+    const dayScores = sanitizeStudentScores(rawDayScores);
     const dayPlanItems = (window._currentStudentPlannedDays || []).filter(p => p.date === dateStr);
     
     // Plan info block & tracking matched scores
@@ -7925,7 +8188,7 @@ window.showDayDetails = (dateStr) => {
     if (otherScores.length > 0) {
         otherScores.forEach(s => {
             const isPositive = s.points > 0;
-            const isAbsence = s.criteriaId === 'ABSENCE_RECORD';
+            const isAbsence = s.criteriaId === 'ABSENCE_RECORD' || (s.criteriaName && s.criteriaName.includes('غياب'));
             const isQuran = s.criteriaId === 'QURAN_MEMORIZATION' || s.criteriaId === 'QURAN_REVIEW';
             const isNote = s.criteriaId === 'TEACHER_NOTE';
             const isReading = s.criteriaId && s.criteriaId.startsWith('READING_');
@@ -8090,7 +8353,13 @@ function openTeacherSelectionModal() {
 
 // Show absence dates modal for parent view
 function showAbsenceDates(type) {
-    const records = type === 'excuse' ? window._absenceRecordsWithExcuse : window._absenceRecordsNoExcuse;
+    const rawRecords = type === 'excuse' ? window._absenceRecordsWithExcuse : window._absenceRecordsNoExcuse;
+    const seenDates = new Set();
+    const records = (rawRecords || []).filter(r => {
+        if (!r || !r.date || seenDates.has(r.date)) return false;
+        seenDates.add(r.date);
+        return true;
+    });
     const title = type === 'excuse' ? 'أيام الغياب بعذر' : 'أيام الغياب بدون عذر';
     const emoji = type === 'excuse' ? '✅' : '❌';
 
@@ -8388,17 +8657,18 @@ async function exportScoresXLSX(startDateStr, endDateStr) {
         
         // Cannot easily filter by date range if not indexed correctly or if multiple bounds, so we fetch all for level and filter in memory
         const scoresSnap = await window.firebaseOps.getDocs(scoresQ);
-        const scores = [];
+        const rawScores = [];
         scoresSnap.forEach(doc => {
             const d = doc.data();
             if(startDateStr && endDateStr) {
                 if (d.date >= startDateStr && d.date <= endDateStr) {
-                    scores.push(d);
+                    rawScores.push(d);
                 }
             } else {
-                scores.push(d);
+                rawScores.push(d);
             }
         });
+        const scores = sanitizeStudentScores(rawScores);
 
         if (scores.length === 0) {
             showToast("لا يوجد درجات للتصدير في هذه المدة", "error");
@@ -8720,13 +8990,13 @@ async function openStatsModal() {
         scoresSnap.forEach(doc => { allScores.push(doc.data()); });
 
         const studentIds = students.map(s => s.id);
-        const scores = allScores.filter(s => studentIds.includes(s.studentId));
+        const scores = sanitizeStudentScores(allScores.filter(s => studentIds.includes(s.studentId)));
 
         // Calculate stats
         const totalStudents = students.length;
         const totalScoreRecords = scores.length;
         const totalPoints = scores.reduce((sum, s) => sum + (s.points || 0), 0);
-        const absences = scores.filter(s => s.criteriaId === 'ABSENCE_RECORD').length;
+        const absences = scores.filter(s => s.criteriaId === 'ABSENCE_RECORD' || (s.criteriaName && s.criteriaName.includes('غياب'))).length;
 
         // Student totals for chart
         const studentTotals = {};
@@ -9358,8 +9628,8 @@ async function buildDirectGradingWhatsAppQueue(startDate, endDate) {
     bulkWhatsAppQueue = [];
 
     students.forEach(st => {
-        const sScores = allScores.filter(s => s.studentId === st.id);
-        const absences = sScores.filter(s => s.criteriaId === 'ABSENCE_RECORD');
+        const sScores = sanitizeStudentScores(allScores.filter(s => s.studentId === st.id));
+        const absences = sScores.filter(s => s.criteriaId === 'ABSENCE_RECORD' || (s.criteriaName && s.criteriaName.includes('غياب')));
         const quranScores = sScores.filter(s => s.criteriaId === 'QURAN_MEMORIZATION' || s.criteriaId === 'QURAN_REVIEW');
 
         const gradeCounts = {};
@@ -9510,12 +9780,17 @@ async function buildWhatsAppQueue(btn) {
                         
                         let absentDays = [];
                         let deduction = 0;
+                        const rawAbsScores = [];
                         sSnap.forEach(doc => {
-                             let sc = doc.data();
-                             if(sc.studentId === st.id && sc.criteriaId === 'ABSENCE_RECORD' && sc.date >= startDate && sc.date <= endDate) {
-                                 deduction += parseFloat(sc.points) || 0;
-                                 absentDays.push(`${sc.date} (${sc.criteriaName || 'غياب'})`);
-                             }
+                            let sc = doc.data();
+                            if(sc.studentId === st.id && (sc.criteriaId === 'ABSENCE_RECORD' || (sc.criteriaName && sc.criteriaName.includes('غياب'))) && sc.date >= startDate && sc.date <= endDate) {
+                                rawAbsScores.push(sc);
+                            }
+                        });
+                        const absScores = sanitizeStudentScores(rawAbsScores);
+                        absScores.forEach(sc => {
+                            deduction += parseFloat(sc.points) || 0;
+                            absentDays.push(`${sc.date} (${sc.criteriaName || 'غياب'})`);
                         });
                         if (absentDays.length > 0) {
                              reportText += `⚠️ خصم غياب: ${deduction}\n`;
@@ -9748,8 +10023,8 @@ async function generateDirectGradingPDFReport(startDate, endDate) {
         reportText += `------------------\n`;
 
         for (const student of students) {
-            const sScores = allScores.filter(s => s.studentId === student.id);
-            const absences = sScores.filter(s => s.criteriaId === 'ABSENCE_RECORD');
+            const sScores = sanitizeStudentScores(allScores.filter(s => s.studentId === student.id));
+            const absences = sScores.filter(s => s.criteriaId === 'ABSENCE_RECORD' || (s.criteriaName && s.criteriaName.includes('غياب')));
             const quranScores = sScores.filter(s => s.criteriaId === 'QURAN_MEMORIZATION' || s.criteriaId === 'QURAN_REVIEW');
 
             const gradeCounts = {};
@@ -9834,10 +10109,12 @@ async function generatePDFReport() {
             )
         ).catch(() => ({ forEach: () => {} }));
 
+        const rawPdfScores = [];
+        sSnap.forEach(d => rawPdfScores.push(d.data()));
+        const cleanPdfScores = sanitizeStudentScores(rawPdfScores);
+
         const studentStatsMap = {};
-        sSnap.forEach(d => {
-            const sc = d.data();
-            
+        cleanPdfScores.forEach(sc => {
             // Check criteria match
             let include = false;
             if (sc.criteriaId === 'ABSENCE_RECORD' || sc.criteriaId === 'ACTIVITY_DAY' || sc.criteriaId === 'TEACHER_NOTE') {
@@ -10381,25 +10658,33 @@ async function calculateAndRenderStats() {
         let excusesCount = 0;
         let criteriaUsage = {};
 
+        const rawParentScores = [];
         sSnap.forEach(d => {
             const sc = d.data();
-            // Only count if student is in the current level
-            if (stIds.includes(sc.studentId)) {
-                totalScoresRows++;
-                const pts = parseFloat(sc.points) || 0;
-                
-                if (pts > 0) posPoints += pts;
-                else if (pts < 0) negPoints += Math.abs(pts);
+            if (stIds.includes(sc.studentId)) rawParentScores.push(sc);
+        });
+        const cleanParentScores = sanitizeStudentScores(rawParentScores);
 
-                const cName = sc.criteriaName || (sc.criteriaId === 'ABSENCE_RECORD' ? 'غياب' : 'عام');
-                
-                if (cName.indexOf('بدون عذر') !== -1 || sc.criteriaId === 'ABSENCE_RECORD') absencesCount++;
-                if (cName.indexOf('بعذر') !== -1) excusesCount++;
+        cleanParentScores.forEach(sc => {
+            totalScoresRows++;
+            const pts = parseFloat(sc.points) || 0;
+            
+            if (pts > 0) posPoints += pts;
+            else if (pts < 0) negPoints += Math.abs(pts);
 
-                if (!criteriaUsage[cName]) criteriaUsage[cName] = { count: 0, points: 0 };
-                criteriaUsage[cName].count++;
-                criteriaUsage[cName].points += pts;
+            const cName = sc.criteriaName || (sc.criteriaId === 'ABSENCE_RECORD' ? 'غياب' : 'عام');
+            const isExcused = cName.indexOf('بعذر') !== -1 && cName.indexOf('بدون') === -1;
+            const isUnexcused = cName.indexOf('بدون عذر') !== -1 || sc.criteriaId === 'ABSENCE_RECORD' || cName.includes('غياب');
+            
+            if (isExcused) {
+                excusesCount++;
+            } else if (isUnexcused) {
+                absencesCount++;
             }
+
+            if (!criteriaUsage[cName]) criteriaUsage[cName] = { count: 0, points: 0 };
+            criteriaUsage[cName].count++;
+            criteriaUsage[cName].points += pts;
         });
 
         // HTML Setup
@@ -10853,17 +11138,19 @@ window.openAbsenceOptions = function() {
     }
 };
 
+let _isSubmittingAbsence = false;
 async function submitAbsence(label, points) {
     if (!currentRateStudentId) {
         showToast("خطأ: لم يتم تحديد الطالب", "error");
         return;
     }
+    if (_isSubmittingAbsence) return;
+    _isSubmittingAbsence = true;
 
     try {
         const student = state.students.find(s => s.id === currentRateStudentId);
         const dateVal = document.getElementById('modal-grading-date') ? document.getElementById('modal-grading-date').value : new Date().toISOString().split('T')[0];
 
-        // 1. Save to DB
         const scoreData = {
             studentId: currentRateStudentId,
             competitionId: currentGradingCompId === 'DIRECT_GRADING' ? null : currentGradingCompId,
@@ -10875,11 +11162,32 @@ async function submitAbsence(label, points) {
             level: state.currentLevel,
             date: dateVal,
             updatedAt: new Date().toISOString(),
-            timestamp: Date.now(),
-            createdAt: new Date().toISOString()
+            timestamp: Date.now()
         };
 
-        await window.firebaseOps.addDoc(window.firebaseOps.collection(window.db, "scores"), scoreData);
+        // 1. Check if an absence record already exists for this student on this date
+        const q = window.firebaseOps.query(
+            window.firebaseOps.collection(window.db, "scores"),
+            window.firebaseOps.where("studentId", "==", currentRateStudentId),
+            window.firebaseOps.where("date", "==", dateVal)
+        );
+        const snap = await window.firebaseOps.getDocs(q);
+        const absenceDocs = snap.docs.filter(d => {
+            const data = d.data();
+            return data.criteriaId === 'ABSENCE_RECORD';
+        });
+
+        if (absenceDocs.length > 0) {
+            // Update the existing record
+            await window.firebaseOps.updateDoc(window.firebaseOps.doc(window.db, "scores", absenceDocs[0].id), scoreData);
+            // Clean up any extra duplicates for this day
+            for (let i = 1; i < absenceDocs.length; i++) {
+                await window.firebaseOps.deleteDoc(window.firebaseOps.doc(window.db, "scores", absenceDocs[i].id));
+            }
+        } else {
+            scoreData.createdAt = new Date().toISOString();
+            await window.firebaseOps.addDoc(window.firebaseOps.collection(window.db, "scores"), scoreData);
+        }
         
         // 2. WhatsApp Notification
         if (student && student.studentNumber) {
@@ -10901,6 +11209,8 @@ async function submitAbsence(label, points) {
     } catch (e) {
         console.error("Error submitting absence:", e);
         showToast("حدث خطأ أثناء تسجيل الغياب", "error");
+    } finally {
+        _isSubmittingAbsence = false;
     }
 }
 
@@ -14674,8 +14984,8 @@ async function fetchAdminDashboardData(forceRefresh = false) {
         const [studentsSnap, teachersSnap, scoresSnap, activitySnap] = await Promise.all([
             fOps.getDocs(fOps.collection(window.db, 'students')),
             fOps.getDocs(fOps.collection(window.db, 'teachers')),
-            fOps.getDocs(fOps.collection(window.db, 'scores')).catch(() => []),
-            fOps.getDocs(fOps.collection(window.db, 'activity_days')).catch(() => [])
+            fOps.getDocs(fOps.collection(window.db, 'scores')),
+            fOps.getDocs(fOps.collection(window.db, 'activity_days'))
         ]);
 
         const allStudents = [];
@@ -14691,12 +15001,7 @@ async function fetchAdminDashboardData(forceRefresh = false) {
         activitySnap.forEach(d => { const data = d.data(); data.id = d.id; allActivityDays.push(data); });
 
         // Filter scores by date range
-        // [FIX] Use only the first 10 chars so ISO timestamps ("2026-09-12T00:00:00Z") compare correctly
-        const filteredScores = allScores.filter(s => {
-            if (!s.date) return false;
-            const d = String(s.date).substring(0, 10);
-            return d >= start && d <= end;
-        });
+        const filteredScores = allScores.filter(s => s.date && s.date >= start && s.date <= end);
 
         // Build per-level stats
         const levelKeys = Object.keys(LEVELS).filter(k => !LEVELS[k].hidden);
@@ -14708,16 +15013,26 @@ async function fetchAdminDashboardData(forceRefresh = false) {
             const lvlScores = filteredScores.filter(s => s.level === lk);
             const lvlActivity = allActivityDays.filter(a => true);
 
-            // Absence counts
-            const absenceScores = lvlScores.filter(s => s.criteriaId === 'ABSENCE_RECORD');
-            const excusedAbsences = absenceScores.filter(s => {
+            // Absence counts (deduplicated by studentId + date to ensure max 1 absence per student per day)
+            const uniqueAbsenceMap = new Map();
+            lvlScores.filter(s => s.criteriaId === 'ABSENCE_RECORD').forEach(s => {
+                if (!s.date || !s.studentId) return;
+                const key = `${s.studentId}_${s.date}`;
                 const cName = s.criteriaName || s.criteria_name || '';
-                return cName.includes('بعذر') && !cName.includes('بدون');
+                const isExcused = cName.includes('بعذر') && !cName.includes('بدون');
+                const sTime = new Date(s.updatedAt || s.created_at || s.timestamp || 0).getTime();
+                if (!uniqueAbsenceMap.has(key)) {
+                    uniqueAbsenceMap.set(key, { ...s, isExcused, sTime });
+                } else {
+                    const existing = uniqueAbsenceMap.get(key);
+                    if (sTime > existing.sTime) {
+                        uniqueAbsenceMap.set(key, { ...s, isExcused, sTime });
+                    }
+                }
             });
-            const unexcusedAbsences = absenceScores.filter(s => {
-                const cName = s.criteriaName || s.criteria_name || '';
-                return cName.includes('بدون عذر');
-            });
+            const absenceScores = Array.from(uniqueAbsenceMap.values());
+            const excusedAbsences = absenceScores.filter(s => s.isExcused);
+            const unexcusedAbsences = absenceScores.filter(s => !s.isExcused);
             const totalAbsences = absenceScores.length;
 
             // Quran grades
@@ -14827,11 +15142,7 @@ async function fetchAdminDashboardData(forceRefresh = false) {
             };
         }
 
-        state.adminData = { levelStats, allStudents, allTeachers, allScores: filteredScores, start, end };
-        // Multi-project injection hook (used by multi-project config.js setups)
-        if (typeof window._injectOtherProjectsData === 'function') {
-            state.adminData = await window._injectOtherProjectsData(state.adminData);
-        }
+        state.adminData = { levelStats, allStudents, allTeachers, allScores: sanitizeStudentScores(filteredScores), start, end };
         return state.adminData;
     } catch (err) {
         console.error('Admin fetch error:', err);
@@ -15225,18 +15536,20 @@ async function renderAdminDashboard() {
                             <th class="px-2 py-2 text-xs font-bold text-gray-600 dark:text-gray-300 text-center">تواصل</th>
                         </tr>
                     </thead>
-                    <tbody>${studentsTableHtml || '<tr><td colspan="7" class="text-center text-gray-400 py-4 text-xs">لا يوجد طلاب مطابقون للبحث</td></tr>'}</tbody>
+                    <tbody id="admin-students-tbody">${studentsTableHtml || '<tr><td colspan="7" class="text-center text-gray-400 py-4 text-xs">لا يوجد طلاب مطابقون للبحث</td></tr>'}</tbody>
                 </table>
             </div>
-            ${hasMoreAffairs ? `
-            <div class="p-3 text-center bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700 mt-2 rounded-xl">
-                <button onclick="window.loadMoreAdminAffairs()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-md transition inline-flex items-center justify-center gap-1.5 mx-auto">
-                    <i data-lucide="chevron-down" class="w-4 h-4"></i>
-                    <span>عرض المزيد (${remainingAffairsCount} متبقي)</span>
-                </button>
+            <div id="admin-students-pagination">
+                ${hasMoreAffairs ? `
+                <div class="p-3 text-center bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700 mt-2 rounded-xl">
+                    <button onclick="window.loadMoreAdminAffairs()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-md transition inline-flex items-center justify-center gap-1.5 mx-auto">
+                        <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                        <span>عرض المزيد (${remainingAffairsCount} متبقي)</span>
+                    </button>
+                </div>
+                ` : ''}
             </div>
-            ` : ''}
-            <p class="text-[10px] text-gray-400 mt-2 text-center">إجمالي: ${filteredStudents.length} ${filteredStudents.length > visibleStudents.length ? `(المعروض: ${visibleStudents.length})` : ''} ${filteredStudents.some(s => s.isAlert) ? `| ⚠️ ${filteredStudents.filter(s => s.isAlert).length} طالب يحتاج متابعة` : ''}</p>
+            <p id="admin-students-summary-text" class="text-[10px] text-gray-400 mt-2 text-center">إجمالي: ${filteredStudents.length} ${filteredStudents.length > visibleStudents.length ? `(المعروض: ${visibleStudents.length})` : ''} ${filteredStudents.some(s => s.isAlert) ? `| ⚠️ ${filteredStudents.filter(s => s.isAlert).length} طالب يحتاج متابعة` : ''}</p>
         </div>
 
         <!-- Export & Reports -->
@@ -15265,15 +15578,112 @@ async function renderAdminDashboard() {
     }
 }
 
-// --- Filter students (re-render table only) ---
+// --- Efficient local update for Admin Students Table (prevents input focus loss & screen reload) ---
+function updateAdminStudentsTable(resetLimit = false) {
+    const tbody = document.getElementById('admin-students-tbody');
+    const paginationContainer = document.getElementById('admin-students-pagination');
+    const summaryText = document.getElementById('admin-students-summary-text');
+    
+    if (!tbody || !state.adminData || !state.adminData.levelStats) {
+        return false;
+    }
+
+    if (resetLimit) {
+        state.adminAffairsLimit = 10;
+    } else if (!state.adminAffairsLimit) {
+        state.adminAffairsLimit = 10;
+    }
+
+    const levelStats = state.adminData.levelStats;
+    const levelKeys = Object.keys(levelStats);
+
+    const allStudentRows = [];
+    for (const lk of levelKeys) {
+        const ls = levelStats[lk];
+        for (const stId in ls.studentAbsenceMap) {
+            const row = ls.studentAbsenceMap[stId];
+            allStudentRows.push({
+                id: row.id || stId,
+                ...row,
+                levelKey: lk,
+                levelName: ls.name
+            });
+        }
+    }
+
+    let filteredStudents = allStudentRows;
+    if (state.adminLevelFilter && state.adminLevelFilter !== 'all') {
+        filteredStudents = filteredStudents.filter(s => s.levelKey === state.adminLevelFilter);
+    }
+    if (state.adminStudentSearch) {
+        const q = state.adminStudentSearch.trim().toLowerCase();
+        filteredStudents = filteredStudents.filter(s => s.name.toLowerCase().includes(q));
+    }
+
+    filteredStudents.sort((a, b) => {
+        if (a.isAlert !== b.isAlert) return a.isAlert ? -1 : 1;
+        return b.total - a.total;
+    });
+
+    const visibleStudents = filteredStudents.slice(0, state.adminAffairsLimit);
+    const hasMoreAffairs = filteredStudents.length > state.adminAffairsLimit;
+    const remainingAffairsCount = filteredStudents.length - state.adminAffairsLimit;
+
+    const studentsTableHtml = visibleStudents.map(st => {
+        const alertClass = st.isAlert ? 'bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500' : '';
+        return `
+        <tr class="${alertClass}">
+            <td class="px-2 py-2 text-xs font-bold cursor-pointer hover:text-purple-600 transition" onclick="openStudentReport('${st.id}')" title="فتح الملف الشخصي">${st.name}</td>
+            <td class="px-2 py-2 text-xs text-gray-500">${st.levelName}</td>
+            <td class="px-2 py-2 text-xs text-center">${st.excused}</td>
+            <td class="px-2 py-2 text-xs text-center">${st.unexcused}</td>
+            <td class="px-2 py-2 text-xs text-center font-bold ${st.isAlert ? 'text-red-600' : ''}">${st.total} ${st.isAlert ? '⚠️' : ''}</td>
+            <td class="px-2 py-2 text-xs text-center">${st.avgGrade}</td>
+            <td class="px-2 py-2 text-xs text-center">
+                <div class="flex items-center justify-center gap-1">
+                    <button onclick="openStudentReport('${st.id}')" class="p-1 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-lg transition" title="فتح الملف الشخصي">
+                        <i data-lucide="user" class="w-4 h-4"></i>
+                    </button>
+                    ${st.phone ? `<button onclick="openWhatsApp('${st.phone}', '')" class="text-green-600 hover:text-green-800 transition p-1" title="مراسلة واتساب"><i data-lucide="message-circle" class="w-4 h-4 inline"></i></button>` : ''}
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+
+    tbody.innerHTML = studentsTableHtml || '<tr><td colspan="7" class="text-center text-gray-400 py-4 text-xs">لا يوجد طلاب مطابقون للبحث</td></tr>';
+
+    if (paginationContainer) {
+        paginationContainer.innerHTML = hasMoreAffairs ? `
+        <div class="p-3 text-center bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700 mt-2 rounded-xl">
+            <button onclick="window.loadMoreAdminAffairs()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-md transition inline-flex items-center justify-center gap-1.5 mx-auto">
+                <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                <span>عرض المزيد (${remainingAffairsCount} متبقي)</span>
+            </button>
+        </div>
+        ` : '';
+    }
+
+    if (summaryText) {
+        summaryText.innerHTML = `إجمالي: ${filteredStudents.length} ${filteredStudents.length > visibleStudents.length ? `(المعروض: ${visibleStudents.length})` : ''} ${filteredStudents.some(s => s.isAlert) ? `| ⚠️ ${filteredStudents.filter(s => s.isAlert).length} طالب يحتاج متابعة` : ''}`;
+    }
+
+    if (window.lucide) lucide.createIcons();
+    return true;
+}
+
+// --- Filter students (re-render table only without resetting dashboard/input focus) ---
 function filterAdminStudents() {
-    state.adminAffairsLimit = 10;
-    renderAdminDashboard();
+    if (!updateAdminStudentsTable(true)) {
+        state.adminAffairsLimit = 10;
+        renderAdminDashboard();
+    }
 }
 
 window.loadMoreAdminAffairs = function() {
     state.adminAffairsLimit = (state.adminAffairsLimit || 10) + 10;
-    renderAdminDashboard();
+    if (!updateAdminStudentsTable(false)) {
+        renderAdminDashboard();
+    }
 };
 
 // --- Charts ---
@@ -15536,27 +15946,49 @@ function openHalqaDisciplineModal(halqaKey, activeTab = 'discipline') {
     actScores.forEach(s => {
         const d = s.date;
         if (d) {
-            if (!actDateMap[d]) actDateMap[d] = { date: d, attendees: new Set(), absences: 0 };
+            if (!actDateMap[d]) actDateMap[d] = { date: d, attendees: new Set(), absentees: new Set(), absences: 0 };
             actDateMap[d].attendees.add(s.studentId);
         }
     });
     lvlScores.filter(s => s.criteriaId === 'ABSENCE_RECORD').forEach(s => {
-        if (s.date && actDateMap[s.date]) {
-            actDateMap[s.date].absences++;
+        if (s.date && actDateMap[s.date] && s.studentId) {
+            actDateMap[s.date].absentees.add(s.studentId);
         }
+    });
+    Object.values(actDateMap).forEach(d => {
+        d.absences = d.absentees ? d.absentees.size : 0;
     });
     const activeDatesList = Object.values(actDateMap).sort((a,b) => b.date.localeCompare(a.date));
 
-    // Detailed absences
-    const detailedAbsences = [];
+    // Detailed absences (deduplicated by studentId + date to show each student at most once per day)
+    const detailedAbsencesMap = new Map();
     lvlScores.filter(s => s.criteriaId === 'ABSENCE_RECORD').forEach(s => {
+        if (!s.date || !s.studentId) return;
+        const key = `${s.studentId}_${s.date}`;
+        const cName = s.criteriaName || s.criteria_name || '';
+        const isExcused = cName.includes('بعذر') && !cName.includes('بدون');
+        const type = isExcused ? 'بعذر' : 'بدون عذر';
         const st = ls.students.find(x => x.id === s.studentId);
-        detailedAbsences.push({
-            date: s.date || '',
-            name: st ? st.name : 'غير معروف',
-            type: (s.criteriaName || s.criteria_name || '').includes('بدون عذر') ? 'بدون عذر' : 'بعذر'
-        });
+        const sTime = new Date(s.updatedAt || s.created_at || s.timestamp || 0).getTime();
+
+        if (!detailedAbsencesMap.has(key)) {
+            detailedAbsencesMap.set(key, {
+                date: s.date || '',
+                studentId: s.studentId,
+                name: st ? st.name : 'غير معروف',
+                type: type,
+                sTime: sTime
+            });
+        } else {
+            const existing = detailedAbsencesMap.get(key);
+            if (sTime > existing.sTime) {
+                existing.type = type;
+                existing.sTime = sTime;
+                if (st) existing.name = st.name;
+            }
+        }
     });
+    const detailedAbsences = Array.from(detailedAbsencesMap.values());
     detailedAbsences.sort((a,b) => b.date.localeCompare(a.date));
 
     const discColor = parseFloat(ls.disciplineRate) >= 80 ? 'text-emerald-500' : parseFloat(ls.disciplineRate) >= 60 ? 'text-yellow-500' : 'text-red-500';
@@ -16278,7 +16710,7 @@ async function generateAndSendStudentWhatsAppReport(studentId, halqaKey) {
     // Get scores for this student in range
     let scores = [];
     if (state.adminData && state.adminData.allScores) {
-        scores = state.adminData.allScores.filter(s => s.studentId === studentId);
+        scores = sanitizeStudentScores(state.adminData.allScores.filter(s => s.studentId === studentId));
     } else {
         try {
             const q = window.firebaseOps.query(
@@ -16286,12 +16718,14 @@ async function generateAndSendStudentWhatsAppReport(studentId, halqaKey) {
                 window.firebaseOps.where("studentId", "==", studentId)
             );
             const snap = await window.firebaseOps.getDocs(q);
+            const rawAdminScores = [];
             snap.forEach(d => {
                 const data = d.data();
                 if (data.date && data.date >= start && data.date <= end) {
-                    scores.push(data);
+                    rawAdminScores.push(data);
                 }
             });
+            scores = sanitizeStudentScores(rawAdminScores);
         } catch (e) {
             console.error("Error loading scores:", e);
         }
@@ -16304,7 +16738,7 @@ async function generateAndSendStudentWhatsAppReport(studentId, halqaKey) {
     reportText += `------------------\n`;
 
     // Absence stats
-    const absences = scores.filter(s => s.criteriaId === 'ABSENCE_RECORD');
+    const absences = scores.filter(s => s.criteriaId === 'ABSENCE_RECORD' || (s.criteriaName && s.criteriaName.includes('غياب')));
     const excused = absences.filter(s => {
         const cName = s.criteriaName || s.criteria_name || '';
         return cName.includes('بعذر') && !cName.includes('بدون');

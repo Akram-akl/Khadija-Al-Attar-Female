@@ -58,6 +58,93 @@ function toCamelCase(obj) {
     return result;
 }
 
+// ===== UI BLOCKER FOR DB WRITES (PREVENT DOUBLE CLICKS) =====
+let activeDbRequests = 0;
+let spinnerTimeout = null;
+
+function showGlobalBlocker() {
+    activeDbRequests++;
+    if (activeDbRequests === 1) {
+        let blocker = document.getElementById('global-db-blocker');
+        if (!blocker) {
+            // 1. The transparent click blocker (Immediate)
+            blocker = document.createElement('div');
+            blocker.id = 'global-db-blocker';
+            blocker.style.position = 'fixed';
+            blocker.style.inset = '0';
+            blocker.style.zIndex = '9999999';
+            blocker.style.cursor = 'wait';
+            
+            // 2. The visual spinner pill (Delayed & Smooth)
+            const pill = document.createElement('div');
+            pill.id = 'global-db-spinner-pill';
+            pill.style.position = 'absolute';
+            pill.style.top = '20px';
+            pill.style.left = '50%';
+            pill.style.transform = 'translateX(-50%) translateY(-20px)';
+            pill.style.opacity = '0';
+            pill.style.transition = 'all 0.3s ease';
+            pill.style.background = 'white';
+            pill.style.padding = '8px 16px';
+            pill.style.borderRadius = '99px';
+            pill.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+            pill.style.display = 'flex';
+            pill.style.alignItems = 'center';
+            pill.style.gap = '8px';
+            pill.style.color = '#059669';
+            pill.style.fontWeight = 'bold';
+            pill.style.fontSize = '14px';
+            pill.innerHTML = `
+                <svg style="animation: spin 1s linear infinite; width: 18px; height: 18px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                جاري الحفظ...
+            `;
+            
+            blocker.appendChild(pill);
+            document.body.appendChild(blocker);
+            
+            if (!document.getElementById('spin-keyframes')) {
+                const style = document.createElement('style');
+                style.id = 'spin-keyframes';
+                style.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
+                document.head.appendChild(style);
+            }
+        }
+        
+        blocker.style.display = 'block';
+        
+        // Only show the visual spinner if the request takes more than 200ms
+        const pill = document.getElementById('global-db-spinner-pill');
+        if (pill) {
+            pill.style.opacity = '0';
+            pill.style.transform = 'translateX(-50%) translateY(-20px)';
+            
+            clearTimeout(spinnerTimeout);
+            spinnerTimeout = setTimeout(() => {
+                pill.style.opacity = '1';
+                pill.style.transform = 'translateX(-50%) translateY(0)';
+            }, 200); // 200ms delay to prevent flickering on fast connections
+        }
+    }
+}
+
+function hideGlobalBlocker() {
+    activeDbRequests = Math.max(0, activeDbRequests - 1);
+    if (activeDbRequests === 0) {
+        const blocker = document.getElementById('global-db-blocker');
+        if (blocker) {
+            blocker.style.display = 'none';
+        }
+        const pill = document.getElementById('global-db-spinner-pill');
+        if (pill) {
+            pill.style.opacity = '0';
+            pill.style.transform = 'translateX(-50%) translateY(-20px)';
+        }
+        clearTimeout(spinnerTimeout);
+    }
+}
+
 // ===== COLLECTION REFERENCE (just stores table name) =====
 function collection(db, tableName) {
     return { _table: tableName, _type: 'collection' };
@@ -95,27 +182,32 @@ function orderBy(field, direction) {
 
 // ===== ADD DOCUMENT =====
 async function addDoc(collectionRef, data) {
-    const snakeData = toSnakeCase(data);
-    // Remove ID if present to let Supabase handle auto-gen (UUID)
-    delete snakeData.id;
+    showGlobalBlocker();
+    try {
+        const snakeData = toSnakeCase(data);
+        // Remove ID if present to let Supabase handle auto-gen (UUID)
+        delete snakeData.id;
 
-    snakeData.created_at = new Date().toISOString();
-    snakeData.updated_at = new Date().toISOString();
+        snakeData.created_at = new Date().toISOString();
+        snakeData.updated_at = new Date().toISOString();
 
-    const { data: result, error } = await supabaseClient
-        .from(collectionRef._table)
-        .insert([snakeData])
-        .select()
-        .single();
+        const { data: result, error } = await supabaseClient
+            .from(collectionRef._table)
+            .insert([snakeData])
+            .select()
+            .single();
 
-    if (error) {
-        console.error('addDoc error:', error);
-        throw error;
+        if (error) {
+            console.error('addDoc error:', error);
+            throw error;
+        }
+        return {
+            id: result.id,
+            ref: { _table: collectionRef._table, _id: result.id, _type: 'doc' }
+        };
+    } finally {
+        hideGlobalBlocker();
     }
-    return {
-        id: result.id,
-        ref: { _table: collectionRef._table, _id: result.id, _type: 'doc' }
-    };
 }
 
 // ===== GET SINGLE DOCUMENT =====
@@ -159,6 +251,7 @@ async function getDocs(queryOrCollection) {
         let query = supabaseClient
             .from(tableName)
             .select('*')
+            .order('id', { ascending: true })
             .range(from, from + PAGE_SIZE - 1);
 
         // Apply constraints
@@ -193,7 +286,16 @@ async function getDocs(queryOrCollection) {
         }
     }
 
-    const docs = allData.map(row => ({
+    // Deduplicate by row ID in case of pagination overlap
+    const uniqueRowMap = new Map();
+    for (const row of allData) {
+        if (row && row.id && !uniqueRowMap.has(row.id)) {
+            uniqueRowMap.set(row.id, row);
+        }
+    }
+    const finalData = uniqueRowMap.size > 0 ? Array.from(uniqueRowMap.values()) : allData;
+
+    const docs = finalData.map(row => ({
         id: row.id,
         data: () => toCamelCase(row),
         ref: { _table: tableName, _id: row.id, _type: 'doc' }
@@ -209,30 +311,40 @@ async function getDocs(queryOrCollection) {
 
 // ===== UPDATE DOCUMENT =====
 async function updateDoc(docRef, data) {
-    const snakeData = toSnakeCase(data);
-    snakeData.updated_at = new Date().toISOString();
+    showGlobalBlocker();
+    try {
+        const snakeData = toSnakeCase(data);
+        snakeData.updated_at = new Date().toISOString();
 
-    const { error } = await supabaseClient
-        .from(docRef._table)
-        .update(snakeData)
-        .eq('id', docRef._id);
+        const { error } = await supabaseClient
+            .from(docRef._table)
+            .update(snakeData)
+            .eq('id', docRef._id);
 
-    if (error) {
-        console.error('updateDoc error:', error);
-        throw error;
+        if (error) {
+            console.error('updateDoc error:', error);
+            throw error;
+        }
+    } finally {
+        hideGlobalBlocker();
     }
 }
 
 // ===== DELETE DOCUMENT =====
 async function deleteDoc(docRef) {
-    const { error } = await supabaseClient
-        .from(docRef._table)
-        .delete()
-        .eq('id', docRef._id);
+    showGlobalBlocker();
+    try {
+        const { error } = await supabaseClient
+            .from(docRef._table)
+            .delete()
+            .eq('id', docRef._id);
 
-    if (error) {
-        console.error('deleteDoc error:', error);
-        throw error;
+        if (error) {
+            console.error('deleteDoc error:', error);
+            throw error;
+        }
+    } finally {
+        hideGlobalBlocker();
     }
 }
 
