@@ -395,13 +395,28 @@ const APP_CONFIG = {
         var appEl = document.getElementById('app') || document.body;
         var observer = new MutationObserver(function (mutations) {
             if (isMutating) return;
+            // جمع العقد المضافة أولاً قبل أي تعديل
+            var newNodes = [];
             for (var i = 0; i < mutations.length; i++) {
                 var m = mutations[i];
                 if (m.addedNodes && m.addedNodes.length > 0) {
                     for (var j = 0; j < m.addedNodes.length; j++) {
-                        replaceFemaleInRoot(m.addedNodes[j]);
+                        if (m.addedNodes[j].nodeType === 1) { // عناصر فقط وليس نصوص
+                            newNodes.push(m.addedNodes[j]);
+                        }
                     }
                 }
+            }
+            if (newNodes.length === 0) return;
+            // قطع الاتصال قبل التعديل لمنع حلقة لا نهائية
+            observer.disconnect();
+            try {
+                for (var k = 0; k < newNodes.length; k++) {
+                    replaceFemaleInRoot(newNodes[k]);
+                }
+            } finally {
+                // إعادة الاتصال بعد الانتهاء
+                observer.observe(appEl, { childList: true, subtree: true });
             }
         });
 
