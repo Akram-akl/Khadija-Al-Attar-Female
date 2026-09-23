@@ -10948,6 +10948,12 @@ function renderDirectGrading() {
         </div>
     `;
 
+    if (isGeneralAdmin && state._directGradingLoadedLevel !== activeLevel) {
+        state._directGradingLoadedLevel = activeLevel;
+        window.switchAdminDirectGradingHalqa(activeLevel);
+        return;
+    }
+
     updateDirectStudentsList();
     refreshActivityDayButton(new Date().toLocaleDateString('en-CA'));
     lucide.createIcons();
@@ -10955,13 +10961,14 @@ function renderDirectGrading() {
 
 window.switchAdminDirectGradingHalqa = async function(level) {
     state.adminDirectGradingLevel = level;
+    state._directGradingLoadedLevel = level;
     try {
         const q = window.firebaseOps.query(window.firebaseOps.collection(window.db, "students"), window.firebaseOps.where("level", "==", level));
         const snap = await window.firebaseOps.getDocs(q);
         const studs = [];
         snap.forEach(d => { var x = d.data(); x.id = d.id; studs.push(x); });
         state.students = studs;
-    } catch(e) { console.error(e); }
+    } catch(e) { console.error('switchAdminDirectGradingHalqa error:', e); }
     renderDirectGrading();
 };
 
@@ -10969,16 +10976,8 @@ function updateDirectStudentsList() {
     const list = $('#direct-students-list');
     if (!list) return;
 
-    const isSupervisor = (state.isAdmin || state.currentLevel === 'admin');
-    if (state.students.length === 0) {
-        if (isSupervisor) {
-            const activeLevel = state.adminDirectGradingLevel || 'abu_bakr';
-            list.innerHTML = '<div class="p-8 text-center"><i data-lucide="loader-2" class="w-6 h-6 animate-spin mx-auto text-purple-600"></i></div>';
-            lucide.createIcons();
-            window.switchAdminDirectGradingHalqa(activeLevel);
-            return;
-        }
-        list.innerHTML = '<p class="text-center text-gray-500 py-8">لا يوجد طلاب مسجلين</p>';
+    if (!state.students || state.students.length === 0) {
+        list.innerHTML = '<p class="text-center text-gray-500 py-8">لا يوجد طلاب مسجلين في هذه الحلقة</p>';
         return;
     }
 

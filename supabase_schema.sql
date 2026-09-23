@@ -679,20 +679,26 @@ $$;
 CREATE OR REPLACE FUNCTION cleanup_student_from_groups()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Remove student from members array in groups
-    UPDATE groups
-    SET members = array_remove(members, OLD.id)
-    WHERE OLD.id = ANY(members);
+    -- Remove student from members array in groups (safe for both uuid[] and text[])
+    BEGIN
+        UPDATE groups
+        SET members = array_remove(members, OLD.id)
+        WHERE OLD.id = ANY(members);
+    EXCEPTION WHEN OTHERS THEN
+        UPDATE groups
+        SET members = array_remove(members, OLD.id::text)
+        WHERE OLD.id::text = ANY(members);
+    END;
 
-    -- Clear leader if the deleted student was the leader
+    -- Clear leader if the deleted student was the leader (safe comparison)
     UPDATE groups
     SET leader = NULL
-    WHERE leader = OLD.id;
+    WHERE leader::text = OLD.id::text;
 
-    -- Clear deputy if the deleted student was the deputy
+    -- Clear deputy if the deleted student was the deputy (safe comparison)
     UPDATE groups
     SET deputy = NULL
-    WHERE deputy = OLD.id;
+    WHERE deputy::text = OLD.id::text;
 
     RETURN OLD;
 END;

@@ -201,6 +201,7 @@ async function addDoc(collectionRef, data) {
             console.error('addDoc error:', error);
             throw error;
         }
+        notifyLocalListeners(collectionRef._table);
         return {
             id: result.id,
             ref: { _table: collectionRef._table, _id: result.id, _type: 'doc' }
@@ -325,6 +326,7 @@ async function updateDoc(docRef, data) {
             console.error('updateDoc error:', error);
             throw error;
         }
+        notifyLocalListeners(docRef._table);
     } finally {
         hideGlobalBlocker();
     }
@@ -343,16 +345,54 @@ async function deleteDoc(docRef) {
             console.error('deleteDoc error:', error);
             throw error;
         }
+        notifyLocalListeners(docRef._table);
     } finally {
         hideGlobalBlocker();
     }
 }
 
-// ===== REALTIME SUBSCRIPTION (onSnapshot) =====
-// [IMPROVED]: Singleton connection with debouncing to prevent connection leaks
+// ===== REALTIME SUBSCRIPTION & SMART POLLING (onSnapshot) =====
+// [IMPROVED]: Smart auto-detection. Official Supabase Cloud uses WebSockets;
+// self-hosted VPS (without Realtime container) uses gentle Smart Polling to prevent connection storms.
+const isCloudSupabase = typeof SUPABASE_URL === 'string' && SUPABASE_URL.includes('.supabase.co');
+let realtimeDisabled = !isCloudSupabase;
 let globalChannel = null;
 let activeListeners = [];
 let fetchTimeouts = {}; 
+let pollingInterval = null;
+
+function notifyLocalListeners(tableName) {
+    if (!tableName) return;
+    const affected = activeListeners.filter(l => l.tableName === tableName);
+    affected.forEach((listener) => {
+        if (fetchTimeouts[listener.id]) clearTimeout(fetchTimeouts[listener.id]);
+        fetchTimeouts[listener.id] = setTimeout(async () => {
+            try {
+                const result = await getDocs(listener.query);
+                listener.callback(result);
+            } catch (e) {
+                console.error('Local listener notify error:', e);
+            }
+        }, 100);
+    });
+}
+
+function startSmartPolling() {
+    if (pollingInterval) return;
+    pollingInterval = setInterval(() => {
+        if (document.hidden || activeListeners.length === 0) return;
+        activeListeners.forEach((listener) => {
+            getDocs(listener.query).then(listener.callback).catch(() => {});
+        });
+    }, 20000); // 20s gentle interval, only active when tab is visible
+}
+
+function stopSmartPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+}
 
 function onSnapshot(queryOrCollection, callback) {
     const tableName = queryOrCollection._table;
@@ -369,32 +409,50 @@ function onSnapshot(queryOrCollection, callback) {
         callback: callback
     });
 
-    // Create a SINGLE global channel if it doesn't exist
-    if (!globalChannel) {
-        globalChannel = supabaseClient.channel('global_db_changes')
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public' },
-                (payload) => {
-                    const changedTable = payload.table;
-                    const affectedListeners = activeListeners.filter(l => l.tableName === changedTable);
-                    
-                    affectedListeners.forEach((listener) => {
-                        // Debounce: Wait 250ms before refetching to bundle rapid changes together
-                        if (fetchTimeouts[listener.id]) clearTimeout(fetchTimeouts[listener.id]);
+    // If self-hosted VPS or realtime disabled, use smart polling
+    if (realtimeDisabled) {
+        startSmartPolling();
+    } else if (!globalChannel) {
+        try {
+            globalChannel = supabaseClient.channel('global_db_changes')
+                .on(
+                    'postgres_changes',
+                    { event: '*', schema: 'public' },
+                    (payload) => {
+                        const changedTable = payload.table;
+                        const affectedListeners = activeListeners.filter(l => l.tableName === changedTable);
                         
-                        fetchTimeouts[listener.id] = setTimeout(async () => {
-                            try {
-                                const result = await getDocs(listener.query);
-                                listener.callback(result);
-                            } catch (e) {
-                                console.error('onSnapshot refetch error:', e);
-                            }
-                        }, 250); 
-                    });
-                }
-            )
-            .subscribe();
+                        affectedListeners.forEach((listener) => {
+                            if (fetchTimeouts[listener.id]) clearTimeout(fetchTimeouts[listener.id]);
+                            
+                            fetchTimeouts[listener.id] = setTimeout(async () => {
+                                try {
+                                    const result = await getDocs(listener.query);
+                                    listener.callback(result);
+                                } catch (e) {
+                                    console.error('onSnapshot refetch error:', e);
+                                }
+                            }, 250); 
+                        });
+                    }
+                )
+                .subscribe((status, err) => {
+                    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || err) {
+                        console.warn('[Realtime] WebSocket unavailable, switching to Smart Polling mode.');
+                        realtimeDisabled = true;
+                        if (globalChannel) {
+                            try { supabaseClient.removeChannel(globalChannel); } catch (_) {}
+                            globalChannel = null;
+                        }
+                        startSmartPolling();
+                    }
+                });
+        } catch (e) {
+            console.warn('[Realtime] Subscription error, switching to Smart Polling:', e);
+            realtimeDisabled = true;
+            globalChannel = null;
+            startSmartPolling();
+        }
     }
 
     // Return unsubscribe function
@@ -405,10 +463,13 @@ function onSnapshot(queryOrCollection, callback) {
             delete fetchTimeouts[listenerId];
         }
         
-        // Clean up channel only when NO listeners are left
-        if (activeListeners.length === 0 && globalChannel) {
-            supabaseClient.removeChannel(globalChannel);
-            globalChannel = null;
+        // Clean up channel and polling only when NO listeners are left
+        if (activeListeners.length === 0) {
+            if (globalChannel) {
+                try { supabaseClient.removeChannel(globalChannel); } catch (_) {}
+                globalChannel = null;
+            }
+            stopSmartPolling();
         }
     };
 }
@@ -447,6 +508,7 @@ function writeBatch(db) {
                     console.error('Batch bulk insert error:', error);
                     throw error;
                 }
+                notifyLocalListeners(tableName);
                 return;
             }
 
