@@ -29,7 +29,7 @@ const APP_CONFIG = {
     // منفصلة تماماً عن الحلقات الذكورية على نفس السيرفر
     dbProvider: 'supabase',
     supabaseUrl: 'https://trackingprogramforakram.duckdns.org:4443',
-    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9.l-6cR50P7V2ZfRCHPwMvq_35ZNwvBd6B6R5L1vki4JU',
+    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlhdCI6MTc5MDE1MTgyMSwiZXhwIjoxOTQ3ODMxODIxfQ.HBXOjBsjELCMViyjaqQ3XtH6yaUrTGm9NXWES8HxBNc',
     apiUrl: 'https://trackingprogramforakram.duckdns.org:4443',
 
     // 4. Levels (الحلقات النسائية)
