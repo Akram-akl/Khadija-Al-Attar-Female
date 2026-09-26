@@ -10,6 +10,13 @@ window.QuranService = (function() {
         if (isLoaded) return true;
         if (loadingPromise) return loadingPromise;
 
+        // Check if preloaded via script tag (solves file:/// CORS restrictions)
+        if (window.HAFS_DATA && Array.isArray(window.HAFS_DATA) && window.HAFS_DATA.length > 0) {
+            quranData = window.HAFS_DATA;
+            isLoaded = true;
+            return true;
+        }
+
         loadingPromise = fetch('./data/hafsData_v2-0.json')
             .then(res => res.json())
             .then(data => {
@@ -18,6 +25,11 @@ window.QuranService = (function() {
                 return true;
             })
             .catch(err => {
+                if (window.HAFS_DATA && Array.isArray(window.HAFS_DATA)) {
+                    quranData = window.HAFS_DATA;
+                    isLoaded = true;
+                    return true;
+                }
                 console.error("فشل تحميل بيانات القرآن:", err);
                 return false;
             });
